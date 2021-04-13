@@ -1,0 +1,10 @@
+#!/bin/bash
+
+HOST=$(uname -n | tr " -" "__")
+HEAMD_DIR=$(cd $(dirname "$0") && pwd)
+EXEC="${HEAMD_DIR}/heamd_${HOST}"
+
+if [ ! -x "$EXEC" -o "${HEAMD_DIR}/../src/heamd.cpp" -nt "$EXEC" -o "${HEAMD_DIR}/../CMakeLists.txt" -nt "$EXEC" -o "$1" ]; then
+	bash "${HEAMD_DIR}/../build.sh"
+fi
+

@@ -1,0 +1,16 @@
+#!/bin/bash
+
+HOST=$(uname -n | tr " -." "___")
+HEAMD_DIR=$(cd $(dirname "$0") && pwd)
+PYTHON=python
+
+if [ -n "$(ldd "${HEAMD_DIR}/heamd_${HOST}" | grep libpython3)" ]
+then
+	PYTHON=python3
+fi
+
+export QT_XCB_GL_INTEGRATION=xcb_egl
+#$PYTHON -m trace --trace "${HEAMD_DIR}/../gui/main.py" "$@"
+exec -a $(basename "$0") "$PYTHON" -O "${HEAMD_DIR}/../gui/main.py" "$@"
+#valgrind $PYTHON "${HEAMD_DIR}/../gui/main.py" "$@"
+

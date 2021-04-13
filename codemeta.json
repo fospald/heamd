@@ -1,0 +1,23 @@
+{
+  "@context": "https://raw.githubusercontent.com/codemeta/codemeta/master/codemeta.jsonld",
+  "@type": "Code",
+  "author": [
+    {
+      "@id": "http://orcid.org/0000-0001-8372-9179",
+      "@type": "Person",
+      "email": "felix.ospald@gmail.com",
+      "name": "Felix Ospald",
+      "affiliation": "TU Chemnitz"
+    }
+  ],
+  "identifier": "",
+  "codeRepository": "https://github.com/fospald/heamd",
+  "datePublished": "2018-10-02",
+  "dateModified": "2018-10-02",
+  "dateCreated": "2018-10-02",
+  "description": "heamd: ",
+  "keywords": "moleculary dynamics, high entropy alloys",
+  "license": "GPL",
+  "title": "heamd",
+  "version": "2021.1"
+}
