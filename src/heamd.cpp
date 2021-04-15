@@ -1,6 +1,6 @@
 /**
 
-\brief fibergen
+\brief heamd
 
 
 
@@ -5745,7 +5745,7 @@ public:
 	// note: 181440 = 20160*9
 	/*
 		# vtk DataFile Version 2.0
-		fibergen
+		heamd
 		ASCII
 		DATASET UNSTRUCTURED_GRID
 		FIELD FieldData 1
@@ -5802,7 +5802,7 @@ public:
 		T sz = _sz/(T)_nz;
 
 		// write header
-		_fs << "# vtk DataFile Version 2.0\nfibergen\n";
+		_fs << "# vtk DataFile Version 2.0\nheamd\n";
 
 		if (_mode == WriteModes::ASCII) {
 			_fs << "ASCII\n";
@@ -24738,15 +24738,15 @@ public:
 
 
 
-//! fibergen interface (e.g. for interfacing with Python)
-class FGI
+//! heamd interface (e.g. for interfacing with Python)
+class HMI
 {
 public:
 	typedef boost::function<bool()> ConvergenceCallback;
 	typedef boost::function<bool()> LoadstepCallback;
 
 	//! see https://stackoverflow.com/questions/827196/virtual-default-destructors-in-c/827205
-	virtual ~FGI() {}
+	virtual ~HMI() {}
 
 	//! reset solver
 	virtual void reset() = 0;
@@ -24820,8 +24820,8 @@ public:
 	//! free a raw data field component obtained by get_raw_field
 	virtual void free_raw_field(void* handle) = 0;
 
-	//! set Python fibergen instance, which can be used (in Python scripts) within a project file as "fg"
-	virtual void set_pyfg_instance(PyObject* instance) = 0;
+	//! set Python heamd instance, which can be used (in Python scripts) within a project file as "fg"
+	virtual void set_pyhm_instance(PyObject* instance) = 0;
 
 	//! set Python variable, which can be used (in Python scripts/expressions) within a project file
 	virtual void set_variable(std::string key, py::object value) = 0;
@@ -24831,9 +24831,100 @@ public:
 };
 
 
-//! Basic implementation of the fibergen interface
+/*
+
+element object:
+ - contains element properties
+ - radius
+ - mass
+ - proton number
+
+element database:
+ - reads element objects form xml file
+
+atom object:
+ - position
+ - velocity
+ - accleleration
+ - which element
+
+ghost atom object:
+ - derived from abstract atom object
+ - containst pointer to real atom and translation
+ - methods return same as atom except position is translated
+
+RVE generator object:
+ - manage list of atoms
+ - ghost atoms for periodic bc
+ - generate random positions + velocities with certain distribution
+
+Next neighbour object:
+ - abstract
+ - build method to initialize and update
+ - query neighbour atoms for an atom up to certain configured distance
+
+Time step object:
+ - abstract
+ - implements Verlet variant
+ - performs time step and updates atoms positions, velocities, etc
+
+Data storage object:
+ - abstract
+ - stores for each timestep atom positions, velocity, time, temperature, pressure, RVE size
+ - possible implementations: memory, file, etc.
+
+Force calculation object:
+ - contains details for computing the atom acceleration
+
+External bath coupling object:
+ - abstract
+ - method to compute scaling factors for positions, RVE size and velocities
+
+MD simulation object:
+ - init element database
+ - init the RVE
+ - init time step object
+ - init force calc object
+ - init data object
+ - run the simulation
+ - stores data to data object
+
+configuration variables:
+ - element database filename
+ - RVE dimensions
+ - number of atoms
+ - specify list of elements and their fraction, visualization color
+ - max number of neigbours levels
+ - max next neigbour distance (computed automatically if < 0 based on the number of atoms and max number of neigbours levels)
+ - specify simulation path for pressure and temperatures over time including time step
+ - default initial pressure and temperature
+ - time step method
+ - data storage configuration (frequency, file, memory, etc.)
+ - number of OpenMP threads
+ - action: run, load run from file if config file has same modifiction timestamp and data was saved to file
+
+Python export:
+ - return list of elements with properties
+ - return list of atoms used in simulation
+ - return time series data of positions etc.
+ - return evaluations (atom density vs distance plot)
+
+GUI TODO:
+ - get data
+ - time slider
+ - visualize atoms
+ - radius scale slider
+ - play speed scale slider
+ - show/hide ghost atoms checkbox
+ - play, pause, reset button
+ - possible clickable atoms to get info of position, velocity etc.
+ - buttons/tabs for diagrams and other evaluations
+*/
+
+
+//! Basic implementation of the heamd interface
 template <typename T, typename R, int DIM>
-class FG : public FGI
+class HM : public HMI
 {
 protected:
 	boost::shared_ptr< ptree::ptree > xml_root;
@@ -24846,18 +24937,18 @@ protected:
 	ublas::matrix<T> Ceff_voigt;
 	ConvergenceCallback convergence_callback;
 	LoadstepCallback loadstep_callback;
-	PyObject* pyfg_instance;
+	PyObject* pyhm_instance;
 
 public:
-	FG(boost::shared_ptr< ptree::ptree > xml) : xml_root(xml)
+	HM(boost::shared_ptr< ptree::ptree > xml) : xml_root(xml)
 	{
-		pyfg_instance = NULL;
+		pyhm_instance = NULL;
 		reset();
 	}
 
-	void set_pyfg_instance(PyObject* instance)
+	void set_pyhm_instance(PyObject* instance)
 	{
-		pyfg_instance = instance;
+		pyhm_instance = instance;
 	}
 
 	void set_variable(std::string key, py::object value)
@@ -24879,8 +24970,8 @@ public:
 		// commented because set_variable not workin otherwise
 		//PY::instance().clear_locals();
 
-		if (pyfg_instance != NULL) {
-			py::object fg(py::handle<>(py::borrowed(pyfg_instance)));
+		if (pyhm_instance != NULL) {
+			py::object fg(py::handle<>(py::borrowed(pyhm_instance)));
 			set_variable("fg", fg);
 		}
 
@@ -25011,8 +25102,8 @@ public:
 
 		lss.reset(new LSSolver<T, T, DIM>(nx, ny, nz, dx, dy, dz, x0));
 		lss->readSettings(solver);
-		lss->setConvergenceCallback(boost::bind(&FG<T,R,DIM>::convergence_callback_wrap, this));
-		lss->setLoadstepCallback(boost::bind(&FG<T,R,DIM>::loadstep_callback_wrap, this));
+		lss->setConvergenceCallback(boost::bind(&HM<T,R,DIM>::convergence_callback_wrap, this));
+		lss->setLoadstepCallback(boost::bind(&HM<T,R,DIM>::loadstep_callback_wrap, this));
 		solver_valid = true;
 	}
 
@@ -25189,7 +25280,7 @@ public:
 
 	void cancel()
 	{
-		set_exception("fibergen canceled");
+		set_exception("heamd canceled");
 	}
 
 	int run(const std::string& actions_path)
@@ -25257,7 +25348,7 @@ public:
 		fftw_plan_with_nthreads(num_threads_fft);
 		
 		std::string host = boost::asio::ip::host_name();
-		std::string fft_wisdom = pt_get(settings, "fft_wisdom", std::string(getenv("HOME")) + "/.fibergen_fft_wisdom_" + host);
+		std::string fft_wisdom = pt_get(settings, "fft_wisdom", std::string(getenv("HOME")) + "/.heamd_fft_wisdom_" + host);
 		if (!fft_wisdom.empty()) {
 			fftw_import_wisdom_from_filename(fft_wisdom.c_str());
 		}
@@ -26512,17 +26603,17 @@ void signal_handler(int signum)
 
 
 
-//! Class which interfaces the FG interface with a project xml file
-class FGProject
+//! Class which interfaces the HM interface with a project xml file
+class HMProject
 {
 protected:
 	boost::shared_ptr< ptree::ptree > xml_root;
-	boost::shared_ptr< FGI > fgi;
+	boost::shared_ptr< HMI > fgi;
 	int xml_precision;
-	PyObject* pyfg_instance;
+	PyObject* pyhm_instance;
 
 public:
-	FGProject()
+	HMProject()
 	{
 		this->xml_precision = -1;
 
@@ -26539,7 +26630,7 @@ public:
 	{
 		xml_root.reset(new ptree::ptree());
 		fgi.reset();
-		pyfg_instance = NULL;
+		pyhm_instance = NULL;
 	}
 
 	void init_fgi()
@@ -26552,7 +26643,7 @@ public:
 		std::string rtype = pt_get<std::string>(settings, "restype", "float");
 
 	#define RUN_TYPE_AND_DIM(T, R, DIM) \
-		else if (#T == type && #R == rtype && DIM == dim) fgi.reset(new FG<T, R, DIM>(xml_root))
+		else if (#T == type && #R == rtype && DIM == dim) fgi.reset(new HM<T, R, DIM>(xml_root))
 
 		if (false) {}
 		//RUN_TYPE_AND_DIM(double, double, 2);
@@ -26567,10 +26658,10 @@ public:
 			BOOST_THROW_EXCEPTION(std::runtime_error("dimension/datatype not supported"));
 		}
 
-		fgi->set_pyfg_instance(pyfg_instance);
+		fgi->set_pyhm_instance(pyhm_instance);
 	}
 
-	boost::shared_ptr< FGI > fg()
+	boost::shared_ptr< HMI > fg()
 	{
 		if (!fgi) init_fgi();
 		return fgi;
@@ -26597,7 +26688,7 @@ public:
 	std::vector<double> get_rve_dims() { return fg()->get_rve_dims(); }
 	std::vector<std::vector<double> > get_A2() { return fg()->get_A2(); }
 	std::vector<std::vector<std::vector<std::vector<double> > > > get_A4() { return fg()->get_A4(); }
-	void set_pyfg_instance(py::object instance) { pyfg_instance = instance.ptr(); }
+	void set_pyhm_instance(py::object instance) { pyhm_instance = instance.ptr(); }
 	void set_variable(std::string key, py::object value) { fg()->set_variable(key, value); }
 	py::object get_variable(std::string key) { return fg()->get_variable(key); }
 
@@ -26781,8 +26872,8 @@ public:
 };
 
 
-//! Python interface class for fibergen
-class PyFG : public FGProject
+//! Python interface class for heamd
+class PyHM : public HMProject
 {
 protected:
 	py::object _py_convergence_callback;
@@ -26790,12 +26881,12 @@ protected:
 
 public:
 
-	PyFG() { }
-	PyFG(py::tuple args, py::dict kw) { }
+	PyHM() { }
+	PyHM(py::tuple args, py::dict kw) { }
 
-	~PyFG()
+	~PyHM()
 	{
-		//LOG_COUT << "~PyFG" << std::endl;
+		//LOG_COUT << "~PyHM" << std::endl;
 		PY::release();
 	}
 
@@ -26815,7 +26906,7 @@ public:
 	void set_convergence_callback(py::object cb)
 	{
 		_py_convergence_callback = cb;
-		fg()->set_convergence_callback(boost::bind(&PyFG::convergence_callback, this));
+		fg()->set_convergence_callback(boost::bind(&PyHM::convergence_callback, this));
 	}
 
 	bool loadstep_callback()
@@ -26834,7 +26925,7 @@ public:
 	void set_loadstep_callback(py::object cb)
 	{
 		_py_loadstep_callback = cb;
-		fg()->set_loadstep_callback(boost::bind(&PyFG::loadstep_callback, this));
+		fg()->set_loadstep_callback(boost::bind(&PyHM::loadstep_callback, this));
 	}
 
 	std::vector<double> get_B_from_A(double a0, double a1, double a2)
@@ -26853,7 +26944,7 @@ public:
 
 py::object SetParameters(py::tuple args, py::dict kwargs)
 {
-	PyFG& self = py::extract<PyFG&>(args[0]);
+	PyHM& self = py::extract<PyHM&>(args[0]);
 	std::string key = py::extract<std::string>(args[1]);
 	py::list keys = kwargs.keys();
 	int nargs = py::len(args) + py::len(kwargs);
@@ -26930,7 +27021,7 @@ void ExtractRangeArg(const std::string& name, size_t n, std::vector<size_t>& ran
 
 py::object GetField(py::tuple args, py::dict kwargs)
 {
-	PyFG& self = py::extract<PyFG&>(args[0]);
+	PyHM& self = py::extract<PyHM&>(args[0]);
 	std::string field = py::extract<std::string>(args[1]);
 
 	std::vector<void*> components;
@@ -27088,7 +27179,7 @@ void translate2(std::runtime_error const& e)
 void translate3(py::error_already_set const& e)
 {
 	// Use the Python 'C' API to set up an exception object
-	//PyErr_SetString(PyExc_RuntimeError, "There was a Python error inside fibergen!");
+	//PyErr_SetString(PyExc_RuntimeError, "There was a Python error inside heamd!");
 }
 
 
@@ -27099,24 +27190,24 @@ void init_numpy() { import_array(); }
 #endif
 
 
-py::object PyFGInitWrapper(py::tuple args, py::dict kw)
+py::object PyHMInitWrapper(py::tuple args, py::dict kw)
 {
-	py::object pyfg = args[0];
-	py::object ret = pyfg.attr("__init__")(args, kw);
-	PyFG& fg = py::extract<PyFG&>(pyfg);
-	fg.set_pyfg_instance(pyfg);
+	py::object pyhm = args[0];
+	py::object ret = pyhm.attr("__init__")(args, kw);
+	PyHM& fg = py::extract<PyHM&>(pyhm);
+	fg.set_pyhm_instance(pyhm);
 	fg.set_py_enabled(true);
 	return ret;
 }
 
 
-//! Python module for fibergen
-class PyFGModule
+//! Python module for heamd
+class PyHMModule
 {
 public:
-	py::object FG;
+	py::object HM;
 
-	PyFGModule()
+	PyHMModule()
 	{
 		// this is required to return py::numeric::array as numpy array
 		init_numpy();
@@ -27134,65 +27225,65 @@ public:
 		py::to_python_converter<std::vector<std::vector<double> >, VecVecToList<double> >();
 		py::to_python_converter<std::vector<std::vector<std::vector<std::vector<double> > > >, VecVecVecVecToList<double> >();
 
-		void (PyFG::*PyFG_set_string)(const std::string& key, const std::string& value) = &PyFG::set;
-		void (PyFG::*PyFG_set_double)(const std::string& key, double value) = &PyFG::set;
-		void (PyFG::*PyFG_set_int)(const std::string& key, long value) = &PyFG::set;
-		void (PyFG::*PyFG_set)(const std::string& key) = &PyFG::set;
+		void (PyHM::*PyHM_set_string)(const std::string& key, const std::string& value) = &PyHM::set;
+		void (PyHM::*PyHM_set_double)(const std::string& key, double value) = &PyHM::set;
+		void (PyHM::*PyHM_set_int)(const std::string& key, long value) = &PyHM::set;
+		void (PyHM::*PyHM_set)(const std::string& key) = &PyHM::set;
 
-		this->FG = py::class_<PyFG, boost::shared_ptr<PyFG>, boost::noncopyable>("HM", "The heamd solver class", py::no_init)
-			.def("__init__", py::raw_function(&PyFGInitWrapper), "Constructor")	// raw constructor
+		this->HM = py::class_<PyHM, boost::shared_ptr<PyHM>, boost::noncopyable>("HM", "The heamd solver class", py::no_init)
+			.def("__init__", py::raw_function(&PyHMInitWrapper), "Constructor")	// raw constructor
 			.def(py::init<py::tuple, py::dict>()) // C++ constructor, shadowed by raw constructor
-			.def("init_lss", &PyFG::init_lss, "Initialize the Lippmann-Schwinger solver (this is usually done automatically)", py::args("self"))
-			.def("init_fibers", &PyFG::init_fibers, "Generate the random geometry (this is usually done automatically)", py::args("self"))
-			.def("init_phase", &PyFG::init_phase, "Discretize the geometry (this is usually done automatically)", py::args("self"))
-			.def("run", &PyFG::run, "Runs the solver (i.e. the actions in the <actions> section)", py::args("self"))
-			.def("run", &PyFG::run_path, "Run actions from a specified path in the XML tree", py::args("self", "path"))
-			.def("cancel", &PyFG::cancel, "Cancel a running solver. This can be called in a callback routine for instance.", py::args("self"))
-			.def("reset", &PyFG::reset, "Resets the solver to its initial state and unloads any loaded XML file.", py::args("self"))
-			.def("get_xml", &PyFG::get_xml, "Get the current project configuration as XML string", py::args("self"))
-			.def("set_xml", &PyFG::set_xml, "Load the current project configuration from a XML string", py::args("self"))
-			.def("set_xml_precision", &PyFG::set_xml_precision, "Set the precision (number of digits) for representing floating point numbers as XML string attributes", py::args("self", "digits"))
-			.def("get_xml_precision", &PyFG::get_xml_precision, "Return the precision (number of digits) for representing floating point numbers as XML string attributes", py::args("self"))
-			.def("load_xml", &PyFG::load_xml, "Load a project from a XML file", py::args("self", "filename"))
-			.def("set", PyFG_set_string, "Set XML attribute or value of an element. Use set('element-path..attribute', value) to set an attribute value.", py::args("self", "path", "value"))
-			.def("set", PyFG_set_double, "Set a floating point property", py::args("self", "path", "value"))
-			.def("set", PyFG_set_int, "Set an integer property", py::args("self", "path", "value"))
-			.def("set", PyFG_set, "Set a property to an empty value", py::args("self", "path"))
+			.def("init_lss", &PyHM::init_lss, "Initialize the Lippmann-Schwinger solver (this is usually done automatically)", py::args("self"))
+			.def("init_fibers", &PyHM::init_fibers, "Generate the random geometry (this is usually done automatically)", py::args("self"))
+			.def("init_phase", &PyHM::init_phase, "Discretize the geometry (this is usually done automatically)", py::args("self"))
+			.def("run", &PyHM::run, "Runs the solver (i.e. the actions in the <actions> section)", py::args("self"))
+			.def("run", &PyHM::run_path, "Run actions from a specified path in the XML tree", py::args("self", "path"))
+			.def("cancel", &PyHM::cancel, "Cancel a running solver. This can be called in a callback routine for instance.", py::args("self"))
+			.def("reset", &PyHM::reset, "Resets the solver to its initial state and unloads any loaded XML file.", py::args("self"))
+			.def("get_xml", &PyHM::get_xml, "Get the current project configuration as XML string", py::args("self"))
+			.def("set_xml", &PyHM::set_xml, "Load the current project configuration from a XML string", py::args("self"))
+			.def("set_xml_precision", &PyHM::set_xml_precision, "Set the precision (number of digits) for representing floating point numbers as XML string attributes", py::args("self", "digits"))
+			.def("get_xml_precision", &PyHM::get_xml_precision, "Return the precision (number of digits) for representing floating point numbers as XML string attributes", py::args("self"))
+			.def("load_xml", &PyHM::load_xml, "Load a project from a XML file", py::args("self", "filename"))
+			.def("set", PyHM_set_string, "Set XML attribute or value of an element. Use set('element-path..attribute', value) to set an attribute value.", py::args("self", "path", "value"))
+			.def("set", PyHM_set_double, "Set a floating point property", py::args("self", "path", "value"))
+			.def("set", PyHM_set_int, "Set an integer property", py::args("self", "path", "value"))
+			.def("set", PyHM_set, "Set a property to an empty value", py::args("self", "path"))
 			.def("set", py::raw_function(&SetParameters, 1), "Set a property in the XML tree using a path and multiple arguments or keyword arguments, i.e. set('path', x=1, y=2, z=0) is equivalent to set('path.x', 1), set('path.y', 2), set('path.z', 0)")
-			.def("get", &PyFG::get, "Get XML attribute or value of an element. Use get('element-path..attribute') to get an attribute value. If the emelent does not exists returns an empty string", py::args("self", "path"))
-			.def("erase", &PyFG::erase, "Remove a path from the XML tree", py::args("self", "path"))
-			.def("get_phase_names", &PyFG::get_phase_names, "Return a list of the phase names (materials)", py::args("self"))
-			.def("get_volume_fraction", &PyFG::get_volume_fraction, "Get the volume fraction of a phase (material) from the discretized geometry (voxels)", py::args("self", "name"))
-			.def("get_real_volume_fraction", &PyFG::get_real_volume_fraction, "Get the volume fraction of a phase (material) using the exact geometry (including multiple overlaps)", py::args("self", "name"))
-			.def("get_solve_time", &PyFG::get_solve_time, "Get the total runtime of the solver", py::args("self"))
-			.def("get_distance_evals", &PyFG::get_distance_evals, "Get number of distance evaluations for discretizing the geometry", py::args("self"))
-			.def("get_residuals", &PyFG::get_residuals, "Get the residual for each iteration", py::args("self"))
-			.def("get_effective_property", &PyFG::get_effective_property, "Get the effective property, computet by the action <calc_effective_properties>", py::args("self"))
-			.def("get_rve_dims", &PyFG::get_rve_dims, "Get origin (first 3 components) and size of the RVE (last 3 components) as tuple", py::args("self"))
-			.def("get_A2", &PyFG::get_A2, "Get second order moment of fiber orientations", py::args("self"))
-			.def("get_A4", &PyFG::get_A4, "Get fourth order moment of fiber orientations", py::args("self"))
-			.def("get_error", &PyFG::get_error, "Returns true, if there was an error running the solver", py::args("self"))
-			.def("get_mean_stress", &PyFG::get_mean_stress, "Returns the mean stress of the current solution", py::args("self"))
-			.def("get_mean_strain", &PyFG::get_mean_strain, "Returns the mean strain of the current solution", py::args("self"))
-			.def("get_mean_cauchy_stress", &PyFG::get_mean_cauchy_stress, "Returns the mean Cauchy stress of the current solution", py::args("self"))
-			.def("get_mean_energy", &PyFG::get_mean_energy, "Returns the mean energy of the current solution", py::args("self"))
+			.def("get", &PyHM::get, "Get XML attribute or value of an element. Use get('element-path..attribute') to get an attribute value. If the emelent does not exists returns an empty string", py::args("self", "path"))
+			.def("erase", &PyHM::erase, "Remove a path from the XML tree", py::args("self", "path"))
+			.def("get_phase_names", &PyHM::get_phase_names, "Return a list of the phase names (materials)", py::args("self"))
+			.def("get_volume_fraction", &PyHM::get_volume_fraction, "Get the volume fraction of a phase (material) from the discretized geometry (voxels)", py::args("self", "name"))
+			.def("get_real_volume_fraction", &PyHM::get_real_volume_fraction, "Get the volume fraction of a phase (material) using the exact geometry (including multiple overlaps)", py::args("self", "name"))
+			.def("get_solve_time", &PyHM::get_solve_time, "Get the total runtime of the solver", py::args("self"))
+			.def("get_distance_evals", &PyHM::get_distance_evals, "Get number of distance evaluations for discretizing the geometry", py::args("self"))
+			.def("get_residuals", &PyHM::get_residuals, "Get the residual for each iteration", py::args("self"))
+			.def("get_effective_property", &PyHM::get_effective_property, "Get the effective property, computet by the action <calc_effective_properties>", py::args("self"))
+			.def("get_rve_dims", &PyHM::get_rve_dims, "Get origin (first 3 components) and size of the RVE (last 3 components) as tuple", py::args("self"))
+			.def("get_A2", &PyHM::get_A2, "Get second order moment of fiber orientations", py::args("self"))
+			.def("get_A4", &PyHM::get_A4, "Get fourth order moment of fiber orientations", py::args("self"))
+			.def("get_error", &PyHM::get_error, "Returns true, if there was an error running the solver", py::args("self"))
+			.def("get_mean_stress", &PyHM::get_mean_stress, "Returns the mean stress of the current solution", py::args("self"))
+			.def("get_mean_strain", &PyHM::get_mean_strain, "Returns the mean strain of the current solution", py::args("self"))
+			.def("get_mean_cauchy_stress", &PyHM::get_mean_cauchy_stress, "Returns the mean Cauchy stress of the current solution", py::args("self"))
+			.def("get_mean_energy", &PyHM::get_mean_energy, "Returns the mean energy of the current solution", py::args("self"))
 			.def("get_field", py::raw_function(&GetField, 1), "Returns solution data as numpy ndarray. Available solution fields are: 'epsilon' (strain), 'sigma' (stress), 'u' (displacement), 'p' (pressure), 'orientation' (fiber orientation vector), 'material_id' (material id), 'fiber_id' (id of the closest fiber), 'distance' (distance to closest interface), 'phi' (phases as listed in the <materials> section), any material name. The first dimension of the returned array denotes the component (3 for vectors, 6 (11,22,33,23,13,12) for symmetric 3x3 matrices, 9 (11,22,33,23,13,12,32,31,21) for 3x3 matrices), the last 3 dimensions address the spatial coordinates.")
-			.def("get_B_from_A", &PyFG::get_B_from_A, "Get angular central Gaussian covariance matrix from moment matrix", py::args("self", "A"))
-			.def("set_convergence_callback", &PyFG::set_convergence_callback, "Set a callback function to be called each iteration of the solver. If the callback returns True, the solver is canceled.", py::args("self", "func"))
-			.def("set_loadstep_callback", &PyFG::set_loadstep_callback, "Set a callback function to be called each loadstep of the solver. If the callback returns True, the solver is canceled.", py::args("self", "func"))
-			.def("set_variable", &PyFG::set_variable, "Set a Python variable, which can be later used in XML attributes as Python expressions", py::args("self", "name", "value"))
-			.def("get_variable", &PyFG::get_variable, "Get a Python variable", py::args("self", "name"))
-			.def("set_log_file", &PyFG::set_log_file, "Set filename for capturing the console output", py::args("self", "filename"))
-			.def("set_py_enabled", &PyFG::set_py_enabled, "Enable/Disable Python evaluation of XML attributes as Python expressions requested by the solver", py::args("self"))
+			.def("get_B_from_A", &PyHM::get_B_from_A, "Get angular central Gaussian covariance matrix from moment matrix", py::args("self", "A"))
+			.def("set_convergence_callback", &PyHM::set_convergence_callback, "Set a callback function to be called each iteration of the solver. If the callback returns True, the solver is canceled.", py::args("self", "func"))
+			.def("set_loadstep_callback", &PyHM::set_loadstep_callback, "Set a callback function to be called each loadstep of the solver. If the callback returns True, the solver is canceled.", py::args("self", "func"))
+			.def("set_variable", &PyHM::set_variable, "Set a Python variable, which can be later used in XML attributes as Python expressions", py::args("self", "name", "value"))
+			.def("get_variable", &PyHM::get_variable, "Get a Python variable", py::args("self", "name"))
+			.def("set_log_file", &PyHM::set_log_file, "Set filename for capturing the console output", py::args("self", "filename"))
+			.def("set_py_enabled", &PyHM::set_py_enabled, "Enable/Disable Python evaluation of XML attributes as Python expressions requested by the solver", py::args("self"))
 		;
 	}
 };
 
 
-#include FG_PYTHON_HEADER_NAME
-// BOOST_PYTHON_MODULE(fibergen)
+#include HM_PYTHON_HEADER_NAME
+// BOOST_PYTHON_MODULE(heamd)
 {
-	PyFGModule module;
+	PyHMModule module;
 }
 
 
@@ -27342,12 +27433,12 @@ int main(int argc, char* argv[])
 #endif
 
 	// run the app
-	PyFGModule module;
-	py::object pyfg = module.FG();
-	PyFG& fgp = py::extract<PyFG&>(pyfg);
-	fgp.set_py_enabled(vm.count("disable-python") == 0);
-	int ret = fgp.exec(vm);
-	fgp.reset();
+	PyHMModule module;
+	py::object pyhm = module.HM();
+	PyHM& hmp = py::extract<PyHM&>(pyhm);
+	hmp.set_py_enabled(vm.count("disable-python") == 0);
+	int ret = hmp.exec(vm);
+	hmp.reset();
 
 	// return exit code
 	return ret;

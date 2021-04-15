@@ -9,7 +9,7 @@ then
 	PYTHON=python3
 fi
 
-export QT_XCB_GL_INTEGRATION=xcb_egl
+#export QT_XCB_GL_INTEGRATION=xcb_egl
 #$PYTHON -m trace --trace "${HEAMD_DIR}/../gui/main.py" "$@"
 exec -a $(basename "$0") "$PYTHON" -O "${HEAMD_DIR}/../gui/main.py" "$@"
 #valgrind $PYTHON "${HEAMD_DIR}/../gui/main.py" "$@"

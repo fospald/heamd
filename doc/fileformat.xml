@@ -44,7 +44,7 @@
 	<num_threads help="number of threads to use for OpenMP parallelization, if &lt; 1 then the number system cores is added to this number" type="int">1</num_threads>
 	<dynamic_threads help="enable or disable the dynamic adjustment of the number of threads" type="bool">0</dynamic_threads>
 	<fft_threads help="number of threads to use for FFT parallelization, if &lt; 1 then uses same as num_threads" type="int">-1</fft_threads>
-	<fft_wisdom help="FFTW wisdom file, defaults to ~/.fibergen_fft_wisdom_$(uname -n)" type="str">...</fft_wisdom>
+	<fft_wisdom help="FFTW wisdom file, defaults to ~/.heamd_fft_wisdom_$(uname -n)" type="str">...</fft_wisdom>
 	
 	<print_precision help="number of digits in terminal output" type="int">4</print_precision>
 	<res_format help="file format for results" type="str" values="binary,ascii">binary</res_format>

@@ -4,7 +4,7 @@
 from __future__ import unicode_literals, division
 import builtins
 
-import fibergen
+import heamd
 import sys, os, re
 import six
 import webbrowser
@@ -55,9 +55,12 @@ try:
 	import matplotlib.ticker as mtick
 	import matplotlib.cm as mcmap
 
+	import pyqtgraph as pg
+	import pyqtgraph.opengl as gl
+
 except BaseException as e:
 	print(str(e))
-	print("Make sure you have the scipy, numpy, matplotlib, pyqt5 and pyqt5-webengine packages for Python%d installed!" % sys.version_info[0])
+	print("Make sure you have the scipy, numpy, matplotlib, pyqtgraph, pyqtgraph.opengl, pyqt5 and pyqt5-webengine packages for Python%d installed!" % sys.version_info[0])
 	sys.exit(1)
 
 
@@ -774,7 +777,7 @@ class PlotWidget(QtWidgets.QWidget):
 		def makeMaskFieldCallback(index):
 			return lambda checked: self.maskField(index, checked)
 
-		materials = field_groups[1]
+		materials = []
 		if len(materials) >= 2:
 			#hbox = QtWidgets.QHBoxLayout()
 			hbox.addWidget(QtWidgets.QLabel("Mask:"))
@@ -885,8 +888,64 @@ class PlotWidget(QtWidgets.QWidget):
 		wvbox = QtWidgets.QVBoxLayout()
 		wvbox.setContentsMargins(2, 2, 2, 2)
 		#wvbox.setSpacing(0)
-		wvbox.addWidget(self.fignavbar)
-		wvbox.addWidget(self.figcanvas)
+		#wvbox.addWidget(self.fignavbar)
+		#wvbox.addWidget(self.figcanvas)
+
+
+
+
+		
+
+		w = gl.GLViewWidget()
+		w.show()
+		w.setWindowTitle('pyqtgraph example: GL Shaders')
+		w.setCameraPosition(distance=15, azimuth=-90)
+
+		g = gl.GLGridItem()
+		g.scale(2,2,1)
+		w.addItem(g)
+
+		import numpy as np
+
+
+		md = gl.MeshData.sphere(rows=10, cols=20)
+		x = np.linspace(-8, 8, 6)
+
+		m1 = gl.GLMeshItem(meshdata=md, smooth=True, color=(1, 0, 0, 0.2), shader='balloon', glOptions='additive')
+		m1.translate(x[0], 0, 0)
+		m1.scale(1, 1, 2)
+		w.addItem(m1)
+
+		m2 = gl.GLMeshItem(meshdata=md, smooth=True, shader='normalColor', glOptions='opaque')
+		m2.translate(x[1], 0, 0)
+		m2.scale(1, 1, 2)
+		w.addItem(m2)
+
+		m3 = gl.GLMeshItem(meshdata=md, smooth=True, shader='viewNormalColor', glOptions='opaque')
+		m3.translate(x[2], 0, 0)
+		m3.scale(1, 1, 2)
+		w.addItem(m3)
+
+		m4 = gl.GLMeshItem(meshdata=md, smooth=True, shader='shaded', glOptions='opaque')
+		m4.translate(x[3], 0, 0)
+		m4.scale(1, 1, 2)
+		w.addItem(m4)
+
+		m5 = gl.GLMeshItem(meshdata=md, smooth=True, color=(1, 0, 0, 1), shader='edgeHilight', glOptions='opaque')
+		m5.translate(x[4], 0, 0)
+		m5.scale(1, 1, 2)
+		w.addItem(m5)
+
+		m6 = gl.GLMeshItem(meshdata=md, smooth=True, color=(1, 0, 0, 1), shader='heightColor', glOptions='opaque')
+		m6.translate(x[5], 0, 0)
+		m6.scale(1, 1, 2)
+		w.addItem(m6)
+
+
+
+		wvbox.addWidget(w)
+
+
 		wrap = QtWidgets.QWidget()
 		wrap.setStyleSheet("background-color:%s;" % pal.base().color().name());
 		wrap.setLayout(wvbox)
@@ -2106,8 +2165,8 @@ class HelpWidgetCommon(QtCore.QObject):
 			if pos >= m.start() and pos <= (m.start() + len(m.group(0))):
 				word = m.group(0)
 				if word == 'hm':
-					word = 'fibergen'
-				for k in ["fibergen.%s" % word, "fibergen.HM.%s" % word, word]:
+					word = 'heamd'
+				for k in ["heamd.%s" % word, "heamd.HM.%s" % word, word]:
 					try:
 						#helpstr = pydoc.render_doc(k, "Help on %s", renderer=pydoc.plaintext)
 						#helpstr = '<pre>' + html_escape(helpstr) + '</pre>'
@@ -2341,7 +2400,7 @@ class DocWidgetCommon(QtCore.QObject):
 
 		if self.docfile is None:
 			print("WARNING: No doxygen documentation found! Using online README instead.")
-			self.openurl = "https://fospald.github.io/fibergen/"
+			self.openurl = "https://fospald.github.io/heamd/"
 		else:
 			self.openurl = "file://" + self.docfile
 
@@ -2491,7 +2550,7 @@ img {
 			if path == self.demodir:
 				html += '<td>'
 				html += '<h1>' + app.applicationName() + '</h1>'
-				html += '<p>A FFT-based homogenization tool.</p>'
+				html += '<p>A molecular dynamics simulation tool for high entropy alloys.</p>'
 				html += '</td>'
 				img = xml.find("image")
 				if not img is None and not img.text is None and len(img.text) and not self.simple:
@@ -3053,10 +3112,10 @@ class MainWindow(QtWidgets.QMainWindow):
 		
 		app = QtWidgets.QApplication.instance()
 
-		if not isinstance(hm, fibergen.HM):
+		if not isinstance(hm, heamd.HM):
 			try:
-				hm = fibergen.HM()
-				hm.set_py_enabled(not app.pargs.disable_python)
+				hm = heamd.HM()
+				#hm.set_py_enabled(not app.pargs.disable_python)
 				xml = str(self.textEdit.toPlainText())
 				hm.set_xml(xml)
 			except:
@@ -3109,10 +3168,7 @@ class MainWindow(QtWidgets.QMainWindow):
 		const_fields = phase_fields + extra_fields
 		field_names = phase_fields + run_fields + extra_fields
 
-		try:
-			mode = hm.get("solver.mode".encode('utf8'))
-		except:
-			mode = "elasticity"
+		mode = "elasticity"
 
 		if (mode == "viscosity"):
 			field_labels["epsilon"] = lambda i: (u"σ_%s" % coord_names2[i], "fluid stress %s" % coord_names2[i])
@@ -3136,9 +3192,11 @@ class MainWindow(QtWidgets.QMainWindow):
 
 		get_mean_values = False
 
+		"""
 		progress = QtWidgets.QProgressDialog("Computation is running...", "Cancel", 0, 0, self)
 		progress.setWindowTitle("Run")
 		progress.setWindowFlags(progress.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint)
+		"""
 
 		#progress.setWindowModality(QtCore.Qt.WindowModal)
 		#tol = hm.get("solver.tol".encode('utf8'))
@@ -3216,6 +3274,7 @@ class MainWindow(QtWidgets.QMainWindow):
 			return progress.wasCanceled()
 
 
+		"""
 		try:
 			hm.set_loadstep_callback(loadstep_callback)
 			hm.set_convergence_callback(convergence_callback)
@@ -3229,11 +3288,12 @@ class MainWindow(QtWidgets.QMainWindow):
 
 			if progress.wasCanceled():
 				progress.close()
+				print("return 1")
 				del hm
 				return
 
-			if record_loadstep != 0:
-				hm.init_phase()
+			#if record_loadstep != 0:
+			#	hm.init_phase()
 
 			if len(loadstep_called) == 0 and record_loadstep != 0:
 				field_names = const_fields
@@ -3241,183 +3301,14 @@ class MainWindow(QtWidgets.QMainWindow):
 
 		except:
 			print(traceback.format_exc())
+		"""
 
+		"""
 		progress.close()
 		process_events()
+		"""
 		
 		self.runCount += 1
-
-		if len(field_groups) == 0:
-			del hm
-			return
-
-		# compute magnitudes
-		for i, field_group in enumerate(field_groups):
-			name = field_group[0].name
-			dim = field_group[0].data[0].shape[0]
-			if name in ["u", "sigma", "epsilon"] and dim > 1:
-				mag_name = "magnitude_" + name
-				field = PlotField()
-				if dim == 6:
-					field.data = [(np.linalg.norm(d[0:3], axis=0, keepdims=True)**2 + 2*(np.linalg.norm(d[3:6], axis=0, keepdims=True)**2))**0.5 for d in field_group[0].data]
-				else:
-					field.data = [np.linalg.norm(d, axis=0, keepdims=True) for d in field_group[0].data]
-				field.label = "‖" + field_group[0].label[0:field_group[0].label.find("_")] + "‖"
-				field.description = "magnitude of " + field_group[0].description[0:(field_group[0].label.rfind(" ")-1)]
-				field.name = mag_name
-				field.key = mag_name
-				field.component = 0
-				field.num_discrete_values = field_group[0].num_discrete_values
-				field.value_labels = field_group[0].value_labels
-				field_groups[i].append(field)
-				#field_groups[i].insert(0, field)
-
-
-		volume_fractions = collections.OrderedDict()
-		phase_names = hm.get_phase_names()
-		for key in phase_names:
-			volume_fractions[key] = hm.get_volume_fraction(key)
-
-		def section(text):
-			return "<h2>%s</h2>\n" % text
-
-		def matrix(a):
-			if isinstance(a, np.ndarray):
-				a = a.tolist()
-			if isinstance(a, float):
-				return "%.04g" % a
-			if not isinstance(a, list):
-				return str(a)
-			tab = "<table>\n"
-			for r in a:
-				tab += "<tr>\n"
-				if isinstance(r, collections.Iterable):
-					for c in r:
-						tab += "<td>%s</td>\n" % matrix(c)
-				else:
-					tab += "<td>%s</td>\n" % matrix(r)
-				tab += "</tr>\n"
-			tab += "</table>\n"
-			return tab
-					
-		def table(a):
-			tab = "<table>\n"
-			if isinstance(a, dict):
-				for key, value in a.items():
-					if isinstance(value, dict):
-						tab += "<tr>\n"
-						tab += "<th></th>\n"
-						for th_key in value.keys():
-							tab += "<th>%s</th>\n" % th_key
-						tab += "</tr>\n"
-					break
-				for key, value in a.items():
-					tab += "<tr>\n"
-					tab += "<td>%s</td>\n" % key
-					if isinstance(value, dict):
-						for k, v in value.items():
-							tab += "<td>%s</td>\n" % matrix(v)
-					else:
-						tab += "<td>%s</td>\n" % matrix(value)
-					tab += "</tr>\n"
-			elif isinstance(a, list):
-				for value in a:
-					if isinstance(value, dict):
-						tab += "<tr>\n"
-						for th_key in value.keys():
-							tab += "<th>%s</th>\n" % th_key
-						tab += "</tr>\n"
-					break
-				for value in a:
-					if isinstance(value, dict):
-						tab += "<tr>\n"
-						for k, v in value.items():
-							tab += "<td>%s</td>\n" % matrix(v)
-						tab += "</tr>\n"
-				
-			else:
-				return str(a)
-			tab += "</table>\n"
-			return tab
-
-		def plot(x, y, title, xlabel, ylabel, yscale="linear"):
-			fig, ax = plt.subplots(nrows=1, ncols=1)
-			ax.plot(x, y, 'ro-')
-			plt.grid()
-			ax.set_title(title)
-			ax.set_xlabel(xlabel)
-			ax.set_ylabel(ylabel)
-			ax.set_yscale(yscale)
-			tf = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-			fig.savefig(tf.name, transparent=True)
-			plt.close(fig)	# close the figure
-			img = "<p><img class=\"plot\" src='file://%s' /></p>" % tf.name
-			img += "<p>%s</p>" % tf.name
-			return img
-
-		resultText = ""
-
-		resultText += section('General')
-		resultText += table(collections.OrderedDict([
-			('solve_time', hm.get_solve_time()),
-			('error', hm.get_error()),
-			('distance_evals', hm.get_distance_evals()),
-		]))
-		
-		residuals = hm.get_residuals()
-		if len(residuals) > 0:
-			resultText += section('Residual plot')
-			resultText += plot(range(len(residuals)), residuals, "Residuals", "Iteration", "Residual", "log")
-
-		resultText += section('Volume fractions')
-		resultText += table(volume_fractions)
-
-		resultText += section('FO tensors')
-		resultText += table(collections.OrderedDict([
-			('A2', matrix(hm.get_A2())),
-			('A4', matrix(hm.get_A4())),
-		]))
-
-		def safe_call(func):
-			try:
-				return func()
-			except:
-				return None
-
-		def mat(a):
-			if (len(a) == 6):
-				return np.array([
-					[a[0], a[5], a[4]],
-					[a[5], a[1], a[3]],
-					[a[4], a[3], a[2]]
-				], dtype=np.double)
-			if (len(a) == 9):
-				return np.array([
-					[a[0], a[5], a[4]],
-					[a[8], a[1], a[3]],
-					[a[7], a[6], a[2]]
-				], dtype=np.double)
-			return a
-
-		resultText += section('Mean quantities')
-		resultText += table(collections.OrderedDict([
-			('mean_stress', matrix(mat(hm.get_mean_stress()))),
-			('mean_strain', matrix(mat(hm.get_mean_strain()))),
-			#('mean_cauchy_stress', matrix(mat(hm.get_mean_cauchy_stress()))),
-			#('mean_energy', safe_call(hm.get_mean_energy)),
-			('effective_property', matrix(hm.get_effective_property())),
-		]))
-
-		if len(residuals) > 0:
-			resultText += section('Residuals')
-			resultText += table(collections.OrderedDict([
-				('residuals', matrix([[i,r] for i,r in enumerate(residuals)])),
-			]))
-		
-		if get_mean_values:
-			for i, ij in enumerate([11, 22, 33, 23, 13, 12]):
-				resultText += plot(range(len(mean_stresses)), [s[i] for s in mean_stresses], "Sigma_%s" % ij, "Iteration", "Sigma_%d" % ij, "linear")
-				resultText += plot(range(len(mean_strains)), [s[i] for s in mean_strains], "Epsilon_%s" % ij, "Iteration", "Epsilon_%d" % ij, "linear")
 
 		other = self.tabWidget.currentWidget()
 
@@ -3426,13 +3317,15 @@ class MainWindow(QtWidgets.QMainWindow):
 		elif other.file_id != self.file_id:
 			other = None
 
-		rve_dims = hm.get_rve_dims()
+		rve_dims = [1.0, 1.0, 1.0]
+		field_groups = []
+		extra_fields = []
+		resultText = ""
 
 		tab = PlotWidget(rve_dims, field_groups, extra_fields, xml, xml_root, resultText, other)
 		tab.file_id = self.file_id
 
-		if len(tab.fields) > 0:
-			i = self.addTab(tab, "Run_%d" % self.runCount)
+		i = self.addTab(tab, "Run_%d" % self.runCount)
 
 		del hm
 
@@ -3442,7 +3335,7 @@ class App(QtWidgets.QApplication):
 	def __init__(self, args):
 
 		# parse arguments
-		parser = argparse.ArgumentParser(description='fibergen - A FFT-based homogenization tool.')
+		parser = argparse.ArgumentParser(description='heamd - A molecular dynamics simulation tool for high entropy alloys.')
 		parser.add_argument('project', metavar='filename', nargs='?', help='xml project filename to load')
 		parser.add_argument('--disable-browser', action='store_true', default=(not "QtWebKitWidgets" in globals()), help='disable browser components')
 		parser.add_argument('--disable-python', action='store_true', default=False, help='disable Python code evaluation in project files')
@@ -3452,8 +3345,8 @@ class App(QtWidgets.QApplication):
 
 		QtWidgets.QApplication.__init__(self, list(args) + ["--disable-web-security"])
 
-		self.setApplicationName("fibergen")
-		self.setApplicationVersion("2020.1")
+		self.setApplicationName("heamd")
+		self.setApplicationVersion("2021.1")
 		self.setOrganizationName("NumaPDE")
 
 		print("matplotlib:", matplotlib.__version__, "numpy:", np.__version__)
