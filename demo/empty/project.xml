@@ -1,6 +1,67 @@
 <?xml version="1.0" encoding="utf-8"?>
 <settings>
 	<title>Empty project</title>
+	
+	<!-- Note on units:
+		length unit: Bohr radius a0 = 5.29e-11 m
+		mass unit: electron mass m_e =  9.109e-31 kg
+		charge unit: e = 1.60e-19 C
+		angular momentum: reduced Planck h = 6.626e-34 Js 
+		energy unit: Hartree E_h = 4.36e-18 J
+		time: a.t.u. = h/E_h = 2.419e-17 s
+	-->
+	
+	<!-- read elements from database -->
+	<element_db>elements.xml</element_db>
+	
+	<!-- modify/add elements -->
+	<elements>
+		<element id="Al" color="#ff0000" />
+		<element id="Cr" color="#0000ff" />
+	</elements>
+	
+	<!-- RVE dimensions -->
+	<dx>1</dx>
+	<dy>1</dy>
+	<dz>1</dz>
+	
+	<!-- number of atoms -->
+	<n>1000</n>
+
+	<!-- volume fractions -->
+	<fractions>
+		<fraction element="Al" value="0.5" />
+		<fraction element="Cr" value="0.5" />
+	</fractions>
+
+	<!-- max neighbour distance for force calculations, relative value to the RVE size max(dx,dy,dz)
+	     computed automatically if < 0 -->
+	<dmax>-1</dmax>
+	
+	<!-- number of neighbour atom in each direction to compute dmax, if not provided -->
+	<dlevels>1</dlevels>
+
+	<!-- thermodynamic state variables and simulation time
+	     if values for pressure or temperature are not provided
+	     values of the last time step are used
+	     if initial temperature or pressure it will be calculated from the other variable
+		-->
+	<steps>
+		<step t="0" T="1000" />
+		<step t="1" T="300" />
+	</steps>
+	
+	<!-- fixed time step size -->
+	<dt>0.01</dt>
+	
+	<!-- data storage interval in multiple of dt -->
+	<store_interval>1</store_interval>
+	
+	<!-- number of OpenMP threads -->
+	<num_threads>1</num_threads>
+
+	<!-- other actions to perform -->
 	<actions>
 	</actions>
+
 </settings>

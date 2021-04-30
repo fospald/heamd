@@ -57,6 +57,7 @@ try:
 
 	import pyqtgraph as pg
 	import pyqtgraph.opengl as gl
+	from OpenGL.GL import *
 
 except BaseException as e:
 	print(str(e))
@@ -431,6 +432,14 @@ class MyWebPage(QtWebKitWidgets.QWebPage):
 	def __init__(self, parent = None):
 		super(QtWebKitWidgets.QWebPage, self).__init__(parent)
 
+		"""
+		self.settings().setAttribute(QtWebKitWidgets.QWebEngineSettings.LocalContentCanAccessFileUrls, True)
+		self.settings().setAttribute(QtWebKitWidgets.QWebEngineSettings.LocalContentCanAccessRemoteUrls, True)
+		self.settings().setAttribute(QtWebKitWidgets.QWebEngineSettings.LocalStorageEnabled, True)
+		self.settings().setAttribute(QtWebKitWidgets.QWebEngineSettings.AutoLoadImages, True)
+		self.settings().setAttribute(QtWebKitWidgets.QWebEngineSettings.AllowRunningInsecureContent, True)
+		"""
+
 		try:
 			self.setLinkDelegationPolicy(QtWebKitWidgets.QWebPage.DelegateAllLinks)
 			self.setHtml = self.setHtmlFrame
@@ -529,6 +538,89 @@ h3 {
 
 	return html
 
+
+
+class GLBoxItem(gl.GLGraphicsItem.GLGraphicsItem):
+    """
+    **Bases:** :class:`GLGraphicsItem <pyqtgraph.opengl.GLGraphicsItem>`
+    
+    Displays a wire-frame box.
+    """
+    def __init__(self, size=None, color=None, glOptions='translucent'):
+        gl.GLGraphicsItem.GLGraphicsItem.__init__(self)
+        if size is None:
+            size = QtGui.QVector3D(1,1,1)
+        self.setSize(size=size)
+        if color is None:
+            color = (255,255,255,255)
+        self.setColor(color)
+        self.setGLOptions(glOptions)
+    
+    def setSize(self, x=None, y=None, z=None, size=None):
+        """
+        Set the size of the box (in its local coordinate system; this does not affect the transform)
+        Arguments can be x,y,z or size=QVector3D().
+        """
+        if size is not None:
+            x = size.x()
+            y = size.y()
+            z = size.z()
+        self.__size = [x,y,z]
+        self.update()
+        
+    def size(self):
+        return self.__size[:]
+    
+    def setColor(self, *args):
+        """Set the color of the box. Arguments are the same as those accepted by functions.mkColor()"""
+        self.__color = pg.Color(*args)
+        
+    def color(self):
+        return self.__color
+    
+    def paint(self):
+        #glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+        #glEnable( GL_BLEND )
+        #glEnable( GL_ALPHA_TEST )
+        ##glAlphaFunc( GL_ALWAYS,0.5 )
+        #glEnable( GL_POINT_SMOOTH )
+        #glDisable( GL_DEPTH_TEST )
+        self.setupGLState()
+        
+        glBegin( GL_LINES )
+        
+        glColor4f(*self.color().glColor())
+        x,y,z = self.size()
+        glVertex3f(0, 0, 0)
+        glVertex3f(0, 0, z)
+        glVertex3f(x, 0, 0)
+        glVertex3f(x, 0, z)
+        glVertex3f(0, y, 0)
+        glVertex3f(0, y, z)
+        glVertex3f(x, y, 0)
+        glVertex3f(x, y, z)
+
+        glVertex3f(0, 0, 0)
+        glVertex3f(0, y, 0)
+        glVertex3f(x, 0, 0)
+        glVertex3f(x, y, 0)
+        glVertex3f(0, 0, z)
+        glVertex3f(0, y, z)
+        glVertex3f(x, 0, z)
+        glVertex3f(x, y, z)
+        
+        glVertex3f(0, 0, 0)
+        glVertex3f(x, 0, 0)
+        glVertex3f(0, y, 0)
+        glVertex3f(x, y, 0)
+        glVertex3f(0, 0, z)
+        glVertex3f(x, 0, z)
+        glVertex3f(0, y, z)
+        glVertex3f(x, y, z)
+        
+        glEnd()
+        
+        
 
 class PlotField(object):
 	pass
@@ -899,47 +991,80 @@ class PlotWidget(QtWidgets.QWidget):
 		w = gl.GLViewWidget()
 		w.show()
 		w.setWindowTitle('pyqtgraph example: GL Shaders')
-		w.setCameraPosition(distance=15, azimuth=-90)
+		w.setCameraPosition(distance=3, azimuth=-90)
 
+		"""
 		g = gl.GLGridItem()
 		g.scale(2,2,1)
 		w.addItem(g)
+		"""
 
-		import numpy as np
+
+		"""
+		xx = 0
+		yx = 0
+		zx = 0
+
+		xy = 1
+		yy = 0
+		zy = 0
+
+		Xdot = (xx, yx, zx)
+		Ydot = (xy, yy, zy)
+
+		pts = np.array([Xdot, Ydot])
+		sh1 = gl.GLLinePlotItem(pos=pts, width=1, antialias=False)
+		w.addItem(sh1)
+		"""
 
 
-		md = gl.MeshData.sphere(rows=10, cols=20)
+		q = GLBoxItem()
+		q.translate(-0.5, -0.5, -0.5)
+		q.scale(1, 1, 1)
+		w.addItem(q)
+
+
+		md = gl.MeshData.sphere(rows=5, cols=5)
 		x = np.linspace(-8, 8, 6)
 
+		"""
 		m1 = gl.GLMeshItem(meshdata=md, smooth=True, color=(1, 0, 0, 0.2), shader='balloon', glOptions='additive')
 		m1.translate(x[0], 0, 0)
-		m1.scale(1, 1, 2)
 		w.addItem(m1)
 
 		m2 = gl.GLMeshItem(meshdata=md, smooth=True, shader='normalColor', glOptions='opaque')
 		m2.translate(x[1], 0, 0)
-		m2.scale(1, 1, 2)
 		w.addItem(m2)
 
 		m3 = gl.GLMeshItem(meshdata=md, smooth=True, shader='viewNormalColor', glOptions='opaque')
 		m3.translate(x[2], 0, 0)
-		m3.scale(1, 1, 2)
 		w.addItem(m3)
+		"""
 
-		m4 = gl.GLMeshItem(meshdata=md, smooth=True, shader='shaded', glOptions='opaque')
-		m4.translate(x[3], 0, 0)
-		m4.scale(1, 1, 2)
-		w.addItem(m4)
 
+		pos3 = np.random.rand(300).reshape((100,3)) - 0.5
+
+		sp3 = gl.GLScatterPlotItem(pos=pos3, color=(0,0,1,.9), size=0.1, pxMode=False)
+		w.addItem(sp3)
+
+
+		for i in range(0):
+			x = np.random.rand(3) - 0.5
+			m4 = gl.GLMeshItem(meshdata=md, smooth=True, color=(0, 0, 1, 1), shader='shaded', glOptions='opaque')
+			s = 0.025
+			m4.scale(s, s, s)
+			m4.translate(*x)
+			w.addItem(m4)
+
+		"""
 		m5 = gl.GLMeshItem(meshdata=md, smooth=True, color=(1, 0, 0, 1), shader='edgeHilight', glOptions='opaque')
 		m5.translate(x[4], 0, 0)
-		m5.scale(1, 1, 2)
 		w.addItem(m5)
 
 		m6 = gl.GLMeshItem(meshdata=md, smooth=True, color=(1, 0, 0, 1), shader='heightColor', glOptions='opaque')
 		m6.translate(x[5], 0, 0)
-		m6.scale(1, 1, 2)
 		w.addItem(m6)
+		"""
 
 
 
@@ -2770,7 +2895,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 		#self.setMinimumSize(1000, 800)
 		dir_path = os.path.dirname(os.path.realpath(__file__))
-		self.setWindowTitle(app.applicationName() + " - FFT Homogenization Tool")
+		self.setWindowTitle(app.applicationName() + " - Molecular dynamics for high entropy alloys")
 		self.setWindowIcon(QtGui.QIcon(dir_path + "/../gui/icons/logo1/icon32.png"))
 
 
@@ -3337,13 +3462,15 @@ class App(QtWidgets.QApplication):
 		# parse arguments
 		parser = argparse.ArgumentParser(description='heamd - A molecular dynamics simulation tool for high entropy alloys.')
 		parser.add_argument('project', metavar='filename', nargs='?', help='xml project filename to load')
+		#parser.add_argument('--disable-web-security', action='store_true', default=True, help='disable browser security')
 		parser.add_argument('--disable-browser', action='store_true', default=(not "QtWebKitWidgets" in globals()), help='disable browser components')
 		parser.add_argument('--disable-python', action='store_true', default=False, help='disable Python code evaluation in project files')
 		parser.add_argument('--style', default="", help='set application style')
 		self.pargs = parser.parse_args(args[1:])
 		print(self.pargs)
 
-		QtWidgets.QApplication.__init__(self, list(args) + ["--disable-web-security"])
+		QtWidgets.QApplication.__init__(self, list(args) + [
+			"--disable-web-security"])
 
 		self.setApplicationName("heamd")
 		self.setApplicationVersion("2021.1")
