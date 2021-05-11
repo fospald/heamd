@@ -94,6 +94,8 @@ multigrid improvements:
 #include <boost/algorithm/string.hpp>
 #include <boost/preprocessor/stringize.hpp>
 
+#include <boost/multi_array.hpp>
+
 #include <boost/numeric/ublas/vector.hpp>
 #include <boost/numeric/ublas/matrix.hpp>
 #include <boost/numeric/ublas/matrix_proxy.hpp>
@@ -1364,24 +1366,25 @@ public:
 
 
 template <typename T, int DIM>
-class MoleculaBase
+class MoleculeBase
 {
 };
 
 
 template <typename T, int DIM>
-class Molecule : public MoleculaBase<T, DIM>
+class Molecule : public MoleculeBase<T, DIM>
 {
 public:
 	ublas::c_vector<T, DIM> x;	// position
 	ublas::c_vector<T, DIM> x0;	// previous position
 	ublas::c_vector<T, DIM> a;	// acceleration
+	ublas::c_vector<T, DIM> v;	// velocity
 	boost::shared_ptr<Element<T, DIM> > element;	// base element
 };
 
 
 template <typename T, int DIM>
-class GhostMolecule : public MoleculaBase<T, DIM>
+class GhostMolecule : public MoleculeBase<T, DIM>
 {
 	ublas::c_vector<T, DIM> t;	// translation
 	boost::shared_ptr<Molecule<T, DIM> > molecule;    // base molecule 
@@ -1415,11 +1418,13 @@ class UnitCell
 	// get list of translations to neighbour cells
 	// get bounding box
 
+public:
 	virtual void readSettings(const ptree::ptree& pt) = 0;
 
-//	void wrap_vector(ublas::c_vector<T, DIM>& v) const = 0;
-//	const ublas::c_vector<T, DIM>& bb_origin() const = 0;
-//	const ublas::c_vector<T, DIM>& bb_size() const = 0;
+	virtual void wrap_vector(ublas::c_vector<T, DIM>& v) const = 0;
+	virtual const ublas::c_vector<T, DIM>& bb_origin() const = 0;
+	virtual const ublas::c_vector<T, DIM>& bb_size() const = 0;
+	virtual T volume() const = 0;
 };
 
 
@@ -1429,12 +1434,14 @@ class CubicUnitCell : public UnitCell<T, DIM>
 protected:
 	// cell dimensions
 	ublas::c_vector<T, DIM> _L;
+	ublas::c_vector<T, DIM> _p0;
 
 public:
 	CubicUnitCell()
 	{
 		for (int d = 0; d < DIM; d++) {
 			_L[d] = 1.0;
+			_p0[d] = 0.0;
 		}
 	}
 
@@ -1448,7 +1455,96 @@ public:
 
 	}
 
+	void wrap_vector(ublas::c_vector<T, DIM>& v) const
+	{
+		// TODO
+	}
 
+	const ublas::c_vector<T, DIM>& bb_origin() const { return _p0; }
+	const ublas::c_vector<T, DIM>& bb_size() const { return _L; }
+
+	T volume() const
+	{
+		T V = _L[0];
+		for (int d = 1; d < DIM; d++) {
+			V *= _L[d];
+		}
+		return V;
+	}
+};
+
+
+template <typename T, int DIM>
+class VerletCell
+{
+protected:
+	std::list<std::size_t> _indices;	// list with molecule indices
+
+public:
+	VerletCell()
+	{
+	}
+
+	const std::list<std::size_t>& indices() const {
+		return _indices;
+	}
+
+	void clear()
+	{
+		_indices.clear();
+	}
+
+	void add(std::size_t index)
+	{
+		_indices.push_back(index);
+	}
+};
+
+
+template <typename T, int DIM>
+class VerletMap
+{
+protected:
+	typedef boost::multi_array< boost::shared_ptr<VerletCell<T, DIM> >, DIM> array_type;
+
+	boost::shared_ptr< array_type > _cells;
+	std::array<std::size_t, DIM> _dims;
+
+public:
+	VerletMap(const std::array<std::size_t, DIM> & dims)
+	{
+		_dims = dims;
+
+		// init array
+		_cells.reset(new array_type(dims));
+
+		// create verlet cells
+		auto elements = boost::make_iterator_range(_cells->data(), _cells->data() + _cells->num_elements());
+		for (auto& element : elements) {
+			element.reset(new VerletCell<T, DIM>());
+		}
+	}
+
+	void clear()
+	{
+		auto elements = boost::make_iterator_range(_cells->data(), _cells->data() + _cells->num_elements());
+		for (auto& element : elements) {
+			element->clear();
+		}
+	}
+
+	boost::shared_ptr<VerletCell<T, DIM> > get_cell(const std::array<std::size_t, DIM>& index)
+	{
+		return (*_cells)(index);
+	}
+
+/*
+	{
+  A(idx) = 3.14;
+  assert(A(idx) == 3.14);
+
+	}
+*/
 };
 
 
@@ -1457,13 +1553,22 @@ class MDSolver
 {
 protected:
 	std::string _cell_type;
+	std::string _result_filename;
 	std::size_t _N;
 	boost::shared_ptr< UnitCell<T, DIM> > _cell;
+	boost::shared_ptr< VerletMap<T, DIM> > _vmap;
+	std::array<std::size_t, DIM> _vdims;
+	T _nn_distance_factor;	// relative number of nearst neighbours included in the Verlet map
+
+	std::vector< boost::shared_ptr< Molecule<T, DIM> > > _molecules;
+
 
 public:
 	MDSolver()
 	{
 		_cell_type = "cubic";
+		_nn_distance_factor = 1.0;
+		_result_filename = "results.xml";
 	}
 
 	//! read settings from ptree
@@ -1472,24 +1577,182 @@ public:
 		_N = pt_get<std::size_t>(pt, "n", _N);
 
 		_cell_type = pt_get<std::string>(pt, "cell_type", _cell_type);
+		_result_filename = pt_get<std::string>(pt, "result_filename", _result_filename);
 
-		if (_cell_type == "cubic") {
-			_cell.reset(new CubicUnitCell<T, DIM>());
-		}
 	}
 
 	void init()
 	{
 		LOG_COUT << "init" << std::endl;
 
+		if (_cell_type == "cubic") {
+			_cell.reset(new CubicUnitCell<T, DIM>());
+		}
+
+		// compute number of Verlet divisions for each dimension
+		const ublas::c_vector<T, DIM>& bb_size = _cell->bb_size();
+		T vol_per_element = _cell->volume()/_N;
+		T nn_distance = std::pow(vol_per_element, 1/(T)DIM);
+
+		for (std::size_t d = 0; d < DIM; d++) {
+			_vdims[d] = std::max((int)std::ceil(bb_size[d]/nn_distance), 1) + 2;	// +2 for periodic boundary cells
+		}
+		_vmap.reset(new VerletMap<T, DIM>(_vdims));
+
+		LOG_COUT << "Verlet dimensions x = " << _vdims[0] << std::endl;
+
+		init_molecules();
 	}
 
 	void run()
 	{
 		LOG_COUT << "run" << std::endl;
 		
+		LOG_COUT << "result file: " << _result_filename << std::endl;
+		std::ofstream f;
+		f.open(_result_filename);
+		
+		write_header(f);
+
+		for (std::size_t i = 0; i < 5; i++) {
+			write_timestep(0.0, f);
+		}
+
+		write_tailing(f);
 	}
 
+	void write_header(std::ofstream & f)
+	{
+		f << "<results>\n";
+
+		f << "\t<dim>" << DIM << "</dim>\n";
+		
+		f << "\t<cell>\n";
+		f << "\t\t<type>" << _cell_type << "</type>\n";
+		const ublas::c_vector<T, DIM>& p0 = _cell->bb_origin();
+		const ublas::c_vector<T, DIM>& L = _cell->bb_size();
+		f << "\t\t<size";
+			for (std::size_t d = 0; d < DIM; d++)
+				f << (boost::format(" s%d='%g'") % d % L[d]).str();
+		f << " />\n";
+		f << "\t\t<origin";
+			for (std::size_t d = 0; d < DIM; d++)
+				f << (boost::format(" p%d='%g'") % d % p0[d]).str();
+		f << " />\n";
+		f << "\t</cell>\n";
+	
+		f << "\t<molecules>\n";
+			for (std::size_t i = 0; i < _molecules.size(); i++) {
+				f << (boost::format("\t\t<molecule id='%d'>") % i).str();
+				f << "\t\t</molecule>\n";
+			}
+		f << "\t</molecules>\n";
+		
+		f << "\t<timesteps>\n";
+	}
+
+	void write_tailing(std::ofstream & f)
+	{
+		f << "\t</timesteps>\n";
+
+		f << "</results>\n";
+		f.close();
+	}
+
+	void write_timestep(T t, std::ofstream & f)
+	{
+		f << (boost::format("\t\t<timestep t='%g'>\n") % t).str();
+
+		f << "\t\t\t<molecules>\n";
+			for (std::size_t i = 0; i < _molecules.size(); i++) {
+				f << (boost::format("\t\t\t\t<molecule id='%d'") % i).str();
+				for (std::size_t d = 0; d < DIM; d++) {
+					f << (boost::format(" p%d='%g'") % d % _molecules[i]->x[d]).str();
+					f << (boost::format(" v%d='%g'") % d % _molecules[i]->v[d]).str();
+					f << (boost::format(" a%d='%g'") % d % _molecules[i]->a[d]).str();
+				}
+				f << " />\n";
+			}
+		f << "\t\t\t</molecules>\n";
+		
+		f << "\t\t</timestep>\n";
+	}
+
+	
+	void init_molecules()
+	{
+		RandomNormal01<T>& rnd = RandomNormal01<T>::instance();
+		const ublas::c_vector<T, DIM>& p0 = _cell->bb_origin();
+		const ublas::c_vector<T, DIM>& L = _cell->bb_size();
+
+		// create N molecules
+		std::list< boost::shared_ptr< Molecule<T, DIM> > > molecules;
+		for (std::size_t i = 0; i < _N; i++)
+		{
+			boost::shared_ptr< Molecule<T, DIM> > m;
+			m.reset(new Molecule<T, DIM>());
+
+			// create random position and velocity
+			for (std::size_t j = 0; j < DIM; j++) {
+				m->x[j] = p0[j] + L[j]*rnd.rnd();
+				m->a[j] = (T)0;
+				m->v[j] = (T)0;
+			}
+
+			// wrap position
+			_cell->wrap_vector(m->x);
+			m->x0 = m->x;
+
+			// add molecule
+			molecules.push_back(m);
+		}
+
+		// init verlet map
+		_molecules.resize(molecules.size());
+		
+		auto it = molecules.begin();
+		for (std::size_t i = 0; i < molecules.size(); i++) {
+			_molecules[i] = *it;
+			++it;
+		}
+
+		verlet_update();
+	}
+
+	void verlet_update()
+	{
+		_vmap->clear();
+
+		for (std::size_t i = 0; i < _molecules.size(); i++) {
+			verlet_add(i);
+		}
+	}
+
+	// compute verlet map index from position
+	// position must be within the bb of the cell
+	void verlet_index(const ublas::c_vector<T, DIM>& p, std::array<std::size_t, DIM>& index)
+	{
+		// compute verlet index
+		const ublas::c_vector<T, DIM>& p0 = _cell->bb_origin();
+		const ublas::c_vector<T, DIM>& L = _cell->bb_size();
+
+		for (std::size_t i = 0; i < DIM; i++) {
+			index[i] = (std::size_t)(1 + (p[i] - p0[i]) / L[i] * (_vdims[i] - 2));
+			index[i] = std::max((std::size_t) 1, std::min(index[i], _vdims[i] - 2));
+		}
+	}
+
+	void verlet_add(std::size_t m_index)
+	{
+		// compute verlet index
+		boost::shared_ptr< Molecule<T, DIM> > m = _molecules[m_index];
+		std::array<std::size_t, DIM> index;
+		verlet_index(m->x, index);
+
+		// add molecule to verlet cell
+		boost::shared_ptr<VerletCell<T, DIM> > v_cell = _vmap->get_cell(index);
+		v_cell->add(m_index);
+	}
 };
 
 
@@ -1582,7 +1845,6 @@ GUI TODO:
 		_intersecting = pt_get(pt, "intersecting", _intersecting);
 		_type = pt_get<std::string>(pt, "type", _type);
 
-*/
 
 
 //! Lippmann-Schwinger solver
@@ -1598,6 +1860,7 @@ protected:
 	LoadstepCallback _loadstep_callback;
 
 };
+*/
 
 
 
@@ -1625,7 +1888,7 @@ public:
 	//! set a loadstep callback routine (run each loadstep)
 	virtual void set_loadstep_callback(LoadstepCallback cb) = 0;
 
-	//! set Python heamd instance, which can be used (in Python scripts) within a project file as "fg"
+	//! set Python heamd instance, which can be used (in Python scripts) within a project file as "hm"
 	virtual void set_pyhm_instance(PyObject* instance) = 0;
 
 	//! set Python variable, which can be used (in Python scripts/expressions) within a project file
@@ -1680,8 +1943,8 @@ public:
 		//PY::instance().clear_locals();
 
 		if (pyhm_instance != NULL) {
-			py::object fg(py::handle<>(py::borrowed(pyhm_instance)));
-			set_variable("fg", fg);
+			py::object hm(py::handle<>(py::borrowed(pyhm_instance)));
+			set_variable("hm", hm);
 		}
 
 		// set variables
@@ -1734,6 +1997,7 @@ public:
 		Timer::reset_stats();
 		_except.reset();
 
+		solver.reset(new MDSolver<T, DIM>());
 	}
 
 	bool loadstep_callback_wrap()
@@ -1786,7 +2050,7 @@ public:
 				// recreate instance
 				//PY::instance().set_enabled(py_enabled);
 				//PY::instance().clear_locals();
-				PY::instance().remove_local("fg");
+				PY::instance().remove_local("hm");
 			}
 		} } ar;
 

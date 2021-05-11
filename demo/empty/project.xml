@@ -62,6 +62,7 @@
 
 	<!-- other actions to perform -->
 	<actions>
+		<run />
 	</actions>
 
 </settings>
