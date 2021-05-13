@@ -1,0 +1,5 @@
+<elements>
+	<element id="Al" Z="2" r="0.05" />
+	<element id="Co" Z="3" r="0.05" />
+	<element id="Cr" Z="3" r="0.05" />
+</elements>
