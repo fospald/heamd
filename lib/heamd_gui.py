@@ -65,6 +65,13 @@ except BaseException as e:
 	sys.exit(1)
 
 
+def hex_to_rgb(value):
+	value = value.lstrip('#')
+	lv = len(value)
+	return tuple(int(value[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
+
+
+
 class PreferencesWidget(QtWidgets.QDialog):
 
 	def __init__(self, parent=None):
@@ -143,20 +150,19 @@ class PreferencesWidget(QtWidgets.QDialog):
 
 class WriteVTKWidget(QtWidgets.QDialog):
 
-	def __init__(self, filename, rve_dims, field_groups, parent=None):
+	def __init__(self, filename, parent=None):
 		super(WriteVTKWidget, self).__init__(parent)
 
 		self.setWindowTitle("Write VTK")
 		self.setWindowFlags(self.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint)
 		
-		self.rve_dims = rve_dims
-		self.field_groups = field_groups
 		self.filename = filename
 
 		grid = QtWidgets.QGridLayout()
 		vbox = QtWidgets.QVBoxLayout()
 		grid.addLayout(vbox, 0, 0)
 
+		"""
 		vbox.addWidget(QtWidgets.QLabel("Fields to export:"))
 
 		for j, field_group in enumerate(field_groups):
@@ -168,6 +174,7 @@ class WriteVTKWidget(QtWidgets.QDialog):
 				gbox.addWidget(field.check)
 			gbox.addStretch(1)
 			vbox.addLayout(gbox)
+		"""
 
 		hline = QtWidgets.QFrame()
 		hline.setFrameShape(QtWidgets.QFrame.HLine)
@@ -202,111 +209,7 @@ class WriteVTKWidget(QtWidgets.QDialog):
 		dtype = "float"
 		
 		with open(self.filename, "wb+") as f:
-
-			def write(s):
-				f.write(s.encode("ascii"))
-
-			write("# vtk DataFile Version 2.0\n" + app.applicationName() + "\n")
-
-			if binary:
-				write("BINARY\n")
-			else:
-				write("ASCII\n")
-
-			dummy, nx, ny, nz = self.field_groups[0][0].data[loadstep].shape
-			x0, y0, z0, dx, dy, dz = self.rve_dims
-			sx, sy, sz = [dx/nx, dy/ny, dz/nz]
-			
-			write("DATASET STRUCTURED_POINTS\n")
-			write("DIMENSIONS " + str(nx+1) + " " + str(ny+1) + " " + str(nz+1) + "\n")
-			write("ORIGIN " + str(x0) + " " + str(y0) + " " + str(z0) + "\n")
-			write("SPACING " + str(sx) + " " + str(sy) + " " + str(sz) + "\n")
-
-			write("CELL_DATA " + str(nx*ny*nz) + "\n")
-
-			for j, field_group in enumerate(self.field_groups):
-
-				write_componentwise = False
-				field_names = []
-				has_magnitude = False
-				for i, field in enumerate(field_group):
-					write_componentwise = write_componentwise or not field.check.isChecked()
-					field_names.append(field.name)
-					has_magnitude = has_magnitude or field.name.startswith("magnitude_")
-
-				for i, field in enumerate(field_group):
-
-					if not field.check.isChecked():
-						continue
-
-					if sys.byteorder == "little":
-						data = field.data[loadstep].byteswap()
-					else:
-						data = field.data[loadstep]
-
-					write("\n")
-
-					ncomp = len(field_group)
-					if has_magnitude:
-						ncomp -= 1
-
-					if field.name.startswith("magnitude_"):
-						ncomp = 1
-
-					if ncomp == 1 or field.name in ["phi"] or write_componentwise:
-						write("SCALARS")
-						ncomp = 1
-					elif ncomp == 3 and field.name in ["n"]:
-						write("NORMALS")
-					elif ncomp == 3:
-						write("VECTORS")
-					elif ncomp == 6:
-						ncomp = 9
-						data = data[[0, 5, 4, 5, 1, 3, 4, 3, 2]]
-						write("TENSORS")
-						# TODO: check if TENSOR6 is supported by paraview version xxx
-						#data = data[[0, 5, 4, 1, 3, 2]]
-						#write("TENSORS6")
-					elif ncomp == 9:
-						data = data[[0, 5, 4, 8, 1, 3, 7, 6, 2]]
-						write("TENSORS")
-					else:
-						print(data.shape, loadstep, field.name, ncomp)
-						raise "problem"
-
-					npdtype = field_group[0].data[loadstep].dtype
-
-					if npdtype == np.float32:
-						dtype = "float"
-					elif npdtype == np.float64:
-						dtype = "double"
-					elif npdtype == np.int32:
-						dtype = "int"
-					elif npdtype == np.int64:
-						dtype = "long"
-					else:
-						print(npdtype)
-						raise "problem"
-
-					if field.name in ["phi"]:
-						label = field.label if not field.label in field_names else field.key
-					else:
-						label = field.key if write_componentwise else field.name
-
-					write(" " + label + " " + dtype + "\n")
-
-					if ncomp == 1:
-						write("LOOKUP_TABLE default\n")
-
-					#print(label, data.shape, ncomp, i, dtype)
-					data = data[(i*ncomp):(i*ncomp + ncomp)].tobytes(order='F')
-
-					f.write(data)
-
-					del data
-
-					if ncomp > 1:
-						break
+			pass
 
 		self.close()
 
@@ -622,71 +525,76 @@ class GLBoxItem(gl.GLGraphicsItem.GLGraphicsItem):
         
         
 
-class PlotField(object):
-	pass
+def ET_get_vector(el, name):
+	return [float(el.get(name + str(i))) for i in range(3)]
+
 
 class PlotWidget(QtWidgets.QWidget):
 
-	def __init__(self, rve_dims, field_groups, extra_fields, xml, xml_root, resultText, other = None, parent = None):
+	def __init__(self, xml, xml_root, resultText, result_xml_root, other = None, parent = None):
+
+		resultText = ""
+
+		self.dim = int(result_xml_root.find("dim").text)
+		self.timesteps = result_xml_root.find("timesteps")
+		self.cell = result_xml_root.find("cell")
+		self.cell_type = self.cell.get("type")
+		self.cell_origin = ET_get_vector(self.cell.find("origin"), "p")
+		self.cell_size = ET_get_vector(self.cell.find("size"), "a")
+		self.cell_center = [self.cell_origin[i] + 0.5*self.cell_size[i] for i in range(3)]
+		
+		self.element_color_map = {}
+		self.element_size_map = {}
+		elements = result_xml_root.find("elements")
+		for i, e in enumerate(elements):
+			eid = e.get("id")
+			color = hex_to_rgb(e.get("color"))
+			self.element_color_map[eid] = color
+			self.element_size_map[eid] = float(e.get("r"))
+
+
+		# get color and sizes
+		alpha = [0.5]
+		scale = 1.0
+
+		molecules = result_xml_root.find("molecules")
+		n = len(molecules)
+		self.size_data0 = np.zeros((n,))
+		self.color_data0 = np.zeros((n, 4))
+		
+		for i, m in enumerate(molecules):
+			el = m.get("element")
+			self.color_data0[i,:] = list(self.element_color_map[el]) + alpha
+			self.size_data0[i] = scale*self.element_size_map[el]
+
+
+		print(self.element_color_map)
+		print(self.element_size_map)
+
+		"""
+		for ts in timesteps:
+			molecules = ts.find("molecules")
+			for m in molecules:
+				print(m.get("id"))
+		"""
+		
+
 
 		app = QtWidgets.QApplication.instance()
 		pal = app.palette()
 
-		self.field_groups = field_groups
-		self.rve_dims = rve_dims
-		self.view_extra_fields = extra_fields
-		self.replotCount = 0
-		self.replotSuspended = True
-		self.changeFieldSuspended = False
-		self.replot_reset_limits = False
-		self.initialView = None
-		self.lastSliceIndices = [0, 0, 0] if other is None else list(other.lastSliceIndices)
-
 		QtWidgets.QWidget.__init__(self, parent)
 		self.setContentsMargins(2, 2, 2, 2)
 		
-		self.fig = Figure(figsize=(20,20))
-		self.fig.set_tight_layout(None)
-		self.fig.set_frameon(False)
-		self.cb = None
-
-		self.axes = self.fig.add_subplot(111)
-		self.axes.set_xlabel("x")
-		self.axes.set_ylabel("y")
 
 		vbox = QtWidgets.QVBoxLayout(self)
 		vbox.setContentsMargins(2, 2, 2, 2)
 		#vbox.setSpacing(0)
 
-		def makeChangeFieldCallback(index):
-			return lambda checked: self.changeField(index, checked)
 		
-		self.fields = []
-		self.currentFieldIndex = other.currentFieldIndex if (other != None) else None
-
 		spacing = 2
 
 		flow = FlowLayout()
-		for j, field_group in enumerate(field_groups):
-			#gbox = QtWidgets.QHBoxLayout()
-			gbox = flow
-			for i, field in enumerate(field_group):
-				button = QtWidgets.QToolButton()
-				field.button = button
-				button.setText(field.label)
-				if len(field.description):
-					button.setToolTip(field.description)
-				button.setCheckable(True)
-				index = len(self.fields)
-				button.toggled.connect(makeChangeFieldCallback(index))
-				if i > 0:
-					gbox.addSpacing(spacing)
-				gbox.addWidget(button)
-				self.fields.append(field)
-			if j > 0:
-				flow.addSpacing(spacing*4)
-			#flow.addLayout(gbox)
-
 		flow.addSpacing(spacing*4)
 		flow.addStretch()
 
@@ -717,57 +625,13 @@ class PlotWidget(QtWidgets.QWidget):
 		hbox.addWidget(self.viewXMLButton)
 
 		flow.addLayout(hbox)
-
 		vbox.addLayout(flow)
 
-		if len(self.fields) == 0:
-			data_shape = [0, 0, 0]
-		else:
-			data_shape = self.fields[0].data[0].shape[1:4]
-
-		self.sliceCombo = QtWidgets.QComboBox()
-		self.sliceCombo.setEditable(False)
-		self.sliceCombo.addItem("x")
-		self.sliceCombo.addItem("y")
-		self.sliceCombo.addItem("z")
-		
-		if (other != None):
-			sliceIndex = other.sliceCombo.currentIndex()
-		else:
-			sliceIndex = 0
-			for i in range(1,3):
-				if data_shape[sliceIndex] >= data_shape[i]:
-					sliceIndex = i
-
-		self.sliceCombo.lastIndex = sliceIndex
-		self.sliceCombo.setCurrentIndex(sliceIndex)
-		self.sliceCombo.currentIndexChanged.connect(self.sliceComboChanged)
-
-		self.sliceSlider = QtWidgets.QSlider()
-		self.sliceSlider.setOrientation(QtCore.Qt.Horizontal)
-		self.sliceSlider.setMinimum(0)
-		self.sliceSlider.setMaximum(data_shape[sliceIndex]-1)
-		self.sliceSlider.setTickPosition(QtWidgets.QSlider.TicksBothSides)
-		self.sliceSlider.setTickInterval(1)
-		#self.sliceSlider.sliderMoved.connect(self.sliceSliderChanged)
-		if (other != None):
-			self.sliceSlider.setValue(int(other.sliceSlider.value()*(self.sliceSlider.maximum()+1)/(other.sliceSlider.maximum()+1)))
-		else:
-			self.sliceSlider.setValue((self.sliceSlider.maximum() + self.sliceSlider.minimum())/2)
-		self.sliceSlider.valueChanged.connect(self.sliceSliderChanged)
-		self.sliceLabel = QtWidgets.QLabel()
-		self.sliceLabel.setText("%s=%04d" % (self.sliceCombo.currentText(), self.sliceSlider.value()))
-
-		hbox1 = QtWidgets.QHBoxLayout()
-		hbox1.addWidget(QtWidgets.QLabel("Slice:"))
-		hbox1.addWidget(self.sliceCombo)
-		hbox1.addWidget(self.sliceSlider)
-		hbox1.addWidget(self.sliceLabel)
 
 		self.loadstepSlider = QtWidgets.QSlider()
 		self.loadstepSlider.setOrientation(QtCore.Qt.Horizontal)
 		self.loadstepSlider.setMinimum(0)
-		self.loadstepSlider.setMaximum((len(self.fields[0].data)-1) if len(self.fields) else 0)
+		self.loadstepSlider.setMaximum(len(self.timesteps)-1)
 		self.loadstepSlider.setTickPosition(QtWidgets.QSlider.TicksBothSides)
 		self.loadstepSlider.setTickInterval(1)
 		#self.loadstepSlider.sliderMoved.connect(self.loadstepSliderChanged)
@@ -779,114 +643,12 @@ class PlotWidget(QtWidgets.QWidget):
 		self.loadstepLabel = QtWidgets.QLabel()
 		self.loadstepLabel.setText("%04d" % self.loadstepSlider.value())
 
-		hbox2 = QtWidgets.QHBoxLayout()
-		hbox2.addWidget(QtWidgets.QLabel("Loadstep:"))
-		hbox2.addWidget(self.loadstepSlider)
-		hbox2.addWidget(self.loadstepLabel)
-
 		hbox = QtWidgets.QHBoxLayout()
-		hbox.addLayout(hbox1)
-		hbox.addLayout(hbox2)
+		hbox.addWidget(QtWidgets.QLabel("Loadstep:"))
+		hbox.addWidget(self.loadstepSlider)
+		hbox.addWidget(self.loadstepLabel)
 		vbox.addLayout(hbox)
 
-		self.defaultColormap = "coolwarm" if 0 else "jet"
-		self.colormapCombo = QtWidgets.QComboBox()
-		self.colormapCombo.setEditable(False)
-		colormaps = sorted(mcmap.datad, key=lambda s: s.lower())
-		for cm in colormaps:
-			self.colormapCombo.addItem(cm)
-		self.colormapCombo.setCurrentIndex(colormaps.index(self.defaultColormap))
-		if (other != None):
-			self.colormapCombo.setCurrentIndex(other.colormapCombo.currentIndex())
-		self.colormapCombo.currentIndexChanged.connect(self.colormapComboChanged)
-
-		self.alphaSlider = QtWidgets.QSlider()
-		self.alphaSlider.setOrientation(QtCore.Qt.Horizontal)
-		self.alphaSlider.setMinimum(0)
-		self.alphaSlider.setMaximum(10000)
-		#self.alphaSlider.setTickPosition(QtWidgets.QSlider.TicksBothSides)
-		self.alphaSlider.setTickInterval(1)
-		#self.alphaSlider.sliderMoved.connect(self.sliceSliderChanged)
-		if (other != None):
-			self.alphaSlider.setValue(other.alphaSlider.value())
-		self.alphaSlider.valueChanged.connect(self.alphaSliderChanged)
-		self.alphaLabel = QtWidgets.QLabel()
-		self.alphaLabel.setText("alpha=%4f" % self.getAlpha())
-
-		self.depthViewCheck = QtWidgets.QCheckBox("depth mode")
-		if (other != None):
-			self.depthViewCheck.setCheckState(other.depthViewCheck.checkState())
-		self.depthViewCheck.stateChanged.connect(self.depthViewCheckChanged)
-
-		self.interpolateCheck = QtWidgets.QCheckBox("interpolate")
-		if (other != None):
-			self.interpolateCheck.setCheckState(other.interpolateCheck.checkState())
-		self.interpolateCheck.stateChanged.connect(self.interpolateCheckChanged)
-
-		hbox = QtWidgets.QHBoxLayout()
-		hbox.addWidget(QtWidgets.QLabel("Colormap:"))
-		hbox.addWidget(self.colormapCombo)
-		hbox.addWidget(QtWidgets.QLabel("Contrast:"))
-		hbox.addWidget(self.alphaSlider)
-		hbox.addWidget(self.alphaLabel)
-		hbox.addWidget(self.depthViewCheck)
-		hbox.addWidget(self.interpolateCheck)
-		vbox.addLayout(hbox)
-
-		self.customBoundsCheck = QtWidgets.QCheckBox("custom")
-		if (other != None):
-			self.customBoundsCheck.setCheckState(other.customBoundsCheck.checkState())
-		self.customBoundsCheck.stateChanged.connect(self.customBoundsCheckChanged)
-
-		self.vminLabel = QtWidgets.QLabel("vmin:")
-		self.vminText = QtWidgets.QLineEdit()
-		self.vminText.setValidator(QtGui.QDoubleValidator(self.vminText));
-
-		self.vmaxLabel = QtWidgets.QLabel("vmax:")
-		self.vmaxText = QtWidgets.QLineEdit()
-		self.vmaxText.setValidator(QtGui.QDoubleValidator(self.vmaxText));
-
-		enabled = self.customBoundsCheck.checkState() != 0
-		if enabled and other != None:
-			self.vminText.setText(other.vminText.text())
-			self.vmaxText.setText(other.vmaxText.text())
-		self.vminText.setEnabled(enabled)
-		self.vmaxText.setEnabled(enabled)
-
-		self.replotButton = QtWidgets.QPushButton("Refresh")
-		self.replotButton.clicked.connect(lambda checked: self.replot)
-
-		hbox = QtWidgets.QHBoxLayout()
-		hbox.addWidget(QtWidgets.QLabel("Bounds:"))
-		hbox.addWidget(self.customBoundsCheck)
-		hbox.addWidget(self.vminLabel)
-		hbox.addWidget(self.vminText)
-		hbox.addWidget(self.vmaxLabel)
-		hbox.addWidget(self.vmaxText)
-		hbox.addWidget(self.replotButton)
-		vbox.addLayout(hbox)
-
-		def makeMaskFieldCallback(index):
-			return lambda checked: self.maskField(index, checked)
-
-		materials = []
-		if len(materials) >= 2:
-			#hbox = QtWidgets.QHBoxLayout()
-			hbox.addWidget(QtWidgets.QLabel("Mask:"))
-			gbox = QtWidgets.QHBoxLayout()
-			for i, field in enumerate(materials):
-				button = QtWidgets.QToolButton()
-				button.setText(field.label)
-				if len(field.description):
-					button.setToolTip(field.description)
-				button.setCheckable(True)
-				button.toggled.connect(makeMaskFieldCallback(index))
-				if i > 0:
-					gbox.addSpacing(spacing)
-				gbox.addWidget(button)
-				field.mask_button = button
-			hbox.addLayout(gbox)
-			#vbox.addLayout(hbox)
 
 		self.stack = QtWidgets.QStackedWidget()
 		self.stack.setFrameShape(QtWidgets.QFrame.StyledPanel)
@@ -894,88 +656,6 @@ class PlotWidget(QtWidgets.QWidget):
 
 		vbox.addWidget(self.stack)
 		
-		self.figcanvas = FigureCanvas(self.fig)
-		self.figcanvas.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
-
-		#self.figcanvas.setStyle(app.style())
-		#self.figcanvas.setStyleSheet("background-color: yellow")
-
-		self.fignavbar = NavigationToolbar(self.figcanvas, self)
-		self.fignavbar.set_cursor(cursors.SELECT_REGION)
-		self.fignavbar.setToolButtonStyle(QtCore.Qt.ToolButtonTextBesideIcon)
-		self.fignavbar.set_history_buttons = self.setHistoryButtons
-		self.fignavbar._update_view_old = self.fignavbar._update_view
-		self.fignavbar._update_view = self.fignavbar_update_view
-		
-		def setIcon(c, names):
-			for name in names:
-				if QtGui.QIcon.hasThemeIcon(name):
-					c.setIcon(QtGui.QIcon.fromTheme(name))
-					return True
-			return False
-
-		action = self.fignavbar.addAction("Grid")
-		action.toggled.connect(lambda c: self.replot())
-		action.setCheckable(True)
-		setIcon(action, ["view-grid", "show-grid"])
-		action.setToolTip("Show grid lines")
-		self.fignavbar.insertAction(self.fignavbar.actions()[-8], action)
-		self.showGridAction = action
-
-		action = self.fignavbar.addAction("Embed")
-		action.triggered.connect(self.saveCurrentView)
-		setIcon(action, ["text-xml"])
-		action.setToolTip("Embed view into XML document")
-		self.fignavbar.insertAction(self.fignavbar.actions()[-2], action)
-		
-		for c in self.fignavbar.findChildren(QtWidgets.QToolButton):
-			if c.text() == "Home":
-				setIcon(c, ["go-first-view", "go-home", "go-first", "arrow-left-double"])
-			elif c.text() == "Back":
-				setIcon(c, ["go-previous-view", "go-previous", "arror-left"])
-			elif c.text() == "Forward":
-				setIcon(c, ["go-next-view", "go-next", "arror-right"])
-			elif c.text() == "Pan":
-				#setIcon(c, ["transform-move"])
-				pass
-			elif c.text() == "Zoom":
-				#setIcon(c, ["zoom-select", "zoom-in"])
-				pass
-			elif c.text() == "Subplots":
-				#setIcon(c, [""])
-				self.fignavbar.removeAction(c.defaultAction())
-			elif c.text() == "Customize":
-				#setIcon(c, ["preferences-system"])
-				self.fignavbar.removeAction(c.defaultAction())
-			elif c.text() == "Save":
-				setIcon(c, ["document-save"])
-
-		tb = QtWidgets.QToolBar()
-		self.fignavbar.setIconSize(tb.iconSize())
-		self.fignavbar.layout().setSpacing(tb.layout().spacing())
-		self.fignavbar.sizeHint = tb.sizeHint
-		self.fignavbar.locLabel.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignCenter)
-		self.fignavbar.locLabel.setSizePolicy(QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Fixed))
-		self.fignavbar.locLabel.setContentsMargins(0,-4,0,-4)
-		fm = QtGui.QFontMetrics(self.fignavbar.locLabel.font())
-		self.fignavbar.locLabel.setFixedHeight(2*fm.height())
-
-		if other != None:
-			if hasattr(self.fignavbar, "_views"):
-				self.fignavbar._views = copy.copy(other.fignavbar._views)
-				self.fignavbar._positions = copy.copy(other.fignavbar._positions)
-			else:
-				# TODO: copy is not possible due to axis reference
-				pass
-				"""
-				for e in other.fignavbar._nav_stack._elements:
-					
-				self.fignavbar._nav_stack = copy.copy(other.fignavbar._nav_stack)
-						self.fignavbar._nav_stack.push(
-							WeakKeyDictionary(
-								{ax: (views[i], pos[i])
-							for i, ax in enumerate(self.figcanvas.figure.get_axes())}))
-				"""
 
 		wvbox = QtWidgets.QVBoxLayout()
 		wvbox.setContentsMargins(2, 2, 2, 2)
@@ -988,10 +668,9 @@ class PlotWidget(QtWidgets.QWidget):
 
 		
 
-		w = gl.GLViewWidget()
-		w.show()
-		w.setWindowTitle('pyqtgraph example: GL Shaders')
-		w.setCameraPosition(distance=3, azimuth=-90)
+		self.rve_view = gl.GLViewWidget()
+		self.rve_view.show()
+		self.rve_view.setCameraPosition(pos=QtGui.QVector3D(*self.cell_center), distance=2*max(self.cell_size), azimuth=-90)
 
 		"""
 		g = gl.GLGridItem()
@@ -1019,15 +698,15 @@ class PlotWidget(QtWidgets.QWidget):
 
 
 		q = GLBoxItem()
-		q.translate(-0.5, -0.5, -0.5)
-		q.scale(1, 1, 1)
-		w.addItem(q)
+		q.scale(*self.cell_size)
+		q.translate(*self.cell_origin)
+		self.rve_view.addItem(q)
 
 
+		"""
 		md = gl.MeshData.sphere(rows=5, cols=5)
 		x = np.linspace(-8, 8, 6)
 
-		"""
 		m1 = gl.GLMeshItem(meshdata=md, smooth=True, color=(1, 0, 0, 0.2), shader='balloon', glOptions='additive')
 		m1.translate(x[0], 0, 0)
 		w.addItem(m1)
@@ -1042,10 +721,12 @@ class PlotWidget(QtWidgets.QWidget):
 		"""
 
 
-		pos3 = np.random.rand(300).reshape((100,3)) - 0.5
+		self.position_data = np.zeros((1,3))
+		self.color_data = np.zeros((1,4))
+		self.size_data = np.zeros((1,))
 
-		sp3 = gl.GLScatterPlotItem(pos=pos3, color=(0,0,1,.9), size=0.1, pxMode=False)
-		w.addItem(sp3)
+		self.rve_scatter_plot = gl.GLScatterPlotItem(pos=self.position_data, color=self.color_data, size=self.size_data, pxMode=False)
+		self.rve_view.addItem(self.rve_scatter_plot)
 
 
 		for i in range(0):
@@ -1054,7 +735,7 @@ class PlotWidget(QtWidgets.QWidget):
 			s = 0.025
 			m4.scale(s, s, s)
 			m4.translate(*x)
-			w.addItem(m4)
+			self.rve_view.addItem(m4)
 
 		"""
 		m5 = gl.GLMeshItem(meshdata=md, smooth=True, color=(1, 0, 0, 1), shader='edgeHilight', glOptions='opaque')
@@ -1068,7 +749,7 @@ class PlotWidget(QtWidgets.QWidget):
 
 
 
-		wvbox.addWidget(w)
+		wvbox.addWidget(self.rve_view)
 
 
 		wrap = QtWidgets.QWidget()
@@ -1101,16 +782,6 @@ class PlotWidget(QtWidgets.QWidget):
 
 		self.setLayout(vbox)
 
-		if len(self.fields) == 0:
-			self.currentFieldIndex = None
-		elif self.currentFieldIndex is None:
-			self.currentFieldIndex = 0
-
-		if not self.currentFieldIndex is None:
-			if (self.currentFieldIndex >= len(self.fields)):
-				self.currentFieldIndex = 0
-			self.fields[self.currentFieldIndex].button.setChecked(True)
-	
 		try:
 			if not xml_root is None:
 				view = xml_root.find('view')
@@ -1119,23 +790,13 @@ class PlotWidget(QtWidgets.QWidget):
 		except:
 			print(traceback.format_exc())
 
-		data = self.getCurrentSlice()
-		self.resetBounds(data)
-		self.replotSuspended = False
-		self.replot(data)
-
+		self.updateTimestep()
 		self.updateFigCanvasVisible()
 
-	def setHistoryButtons(self):
-		#self.redrawCanvas()
-		pass
 
 	def getViewXML(self):
 
 		view = ET.Element('view')
-
-		field = ET.SubElement(view, 'field')
-		field.text = self.fields[self.currentFieldIndex].key
 
 		if self.viewXMLButton.isChecked():
 			vmode = 'xml'
@@ -1147,66 +808,9 @@ class PlotWidget(QtWidgets.QWidget):
 			mode = ET.SubElement(view, 'mode')
 			mode.text = vmode
 
-		slice_dim = ET.SubElement(view, 'slice_dim')
-		slice_dim.text = self.sliceCombo.currentText()
-
-		if self.sliceSlider.minimum() < self.sliceSlider.maximum():
-			slice_index = ET.SubElement(view, 'slice_index')
-			slice_index.text = str((self.sliceSlider.value()+0.5)/(self.sliceSlider.maximum()+1))
-
 		if self.loadstepSlider.minimum() < self.loadstepSlider.maximum():
 			loadstep = ET.SubElement(view, 'loadstep')
 			loadstep.text = str((self.loadstepSlider.value()+0.5)/(self.loadstepSlider.maximum()+1))
-
-		if self.colormapCombo.currentText() != self.defaultColormap:
-			colormap = ET.SubElement(view, 'colormap')
-			colormap.text = self.colormapCombo.currentText()
-
-		valpha = self.getAlpha()
-		if valpha != 0.0:
-			alpha = ET.SubElement(view, 'alpha')
-			alpha.text = str(valpha)
-
-		vinterpolate = 1 if self.interpolateCheck.checkState() else 0
-		if vinterpolate != 0:
-			interpolate = ET.SubElement(view, 'interpolate')
-			interpolate.text = str(vinterpolate)
-
-		vdepth_view = 1 if self.depthViewCheck.checkState() else 0
-		if vdepth_view != 0:
-			depth_view = ET.SubElement(view, 'depth_view')
-			depth_view.text = str(vdepth_view)
-
-		vcustom_bounds = 1 if self.customBoundsCheck.checkState() else 0
-		if vcustom_bounds != 0:
-			custom_bounds = ET.SubElement(view, 'custom_bounds')
-			custom_bounds.text = str(vcustom_bounds)
-			vmin = ET.SubElement(view, 'vmin')
-			vmin.text = self.vminText.text()
-			vmax = ET.SubElement(view, 'vmax')
-			vmax.text = self.vmaxText.text()
-
-		if hasattr(self.fignavbar, "_views"):
-			views = self.fignavbar._views()
-		else:
-			arr = self.fignavbar._nav_stack().values()
-			views = [n[0] for n in arr]
-
-		if not views is None and len(views):
-			v = views[0]
-			data = self.getCurrentSlice()
-			numcols, numrows = data.shape
-			norm = [numcols, numcols, numrows, numrows]
-			defaults = [0.0, 1.0, 0.0, 1.0]
-			values = [(v[i] + 0.5)/norm[i] for i in range(4)]
-			if values != defaults:
-				for i, key in enumerate(["zoom_xmin", "zoom_xmax", "zoom_ymin", "zoom_ymax"]):
-					vi = ET.SubElement(view, key)
-					vi.text = str(values[i])
-
-		if len(self.view_extra_fields):
-			extra_fields = ET.SubElement(view, 'extra_fields')
-			extra_fields.text = ",".join(self.view_extra_fields)
 
 		# indent XML
 		indent = "\t"
@@ -1244,13 +848,6 @@ class PlotWidget(QtWidgets.QWidget):
 
 	def setViewXML(self, view):
 
-		field = view.find('field')
-		if not field is None:
-			for f in self.fields:
-				if f.key == field.text:
-					f.button.setChecked(True)
-					break
-
 		mode = view.find('mode')
 		if not mode is None:
 			if mode.text == 'xml':
@@ -1258,63 +855,9 @@ class PlotWidget(QtWidgets.QWidget):
 			elif mode.text == 'results':
 				self.viewResultDataButton.setChecked(True)
 		
-		slice_dim = view.find('slice_dim')
-		if not slice_dim is None:
-			self.sliceCombo.setCurrentText(slice_dim.text)
-
-		slice_index = view.find('slice_index')
-		if not slice_index is None:
-			self.sliceSlider.setValue(int(float(slice_index.text)*(self.sliceSlider.maximum()+1)))
-
 		loadstep = view.find('loadstep')
 		if not loadstep is None:
 			self.loadstepSlider.setValue(int(float(loadstep.text)*(self.loadstepSlider.maximum()+1)))
-
-		colormap = view.find('colormap')
-		if not colormap is None:
-			self.colormapCombo.setCurrentText(colormap.text)
-
-		alpha = view.find('alpha')
-		if not alpha is None:
-			self.setAlpha(float(alpha.text))
-
-		interpolate = view.find('interpolate')
-		if not interpolate is None:
-			vinterpolate = int(interpolate.text) != 0
-			self.interpolateCheck.setChecked(vinterpolate)
-
-		depth_view = view.find('depth_view')
-		if not depth_view is None:
-			vdepth_view = int(depth_view.text) != 0
-			self.depthViewCheck.setChecked(vdepth_view)
-
-		custom_bounds = view.find('custom_bounds')
-		if not custom_bounds is None:
-			vcustom_bounds = int(custom_bounds.text) != 0
-			self.customBoundsCheck.setChecked(vcustom_bounds)
-			if vcustom_bounds:
-				vmin = view.find('vmin')
-				if not vmin is None:
-					self.vminText.setText(vmin.text)
-
-				vmax = view.find('vmax')
-				if not vmax is None:
-					self.vmaxText.setText(vmax.text)
-
-		zoom = np.zeros(4)
-		data = self.getCurrentSlice()
-		if not data is None:
-			numcols, numrows = data.shape
-			norm = [numcols, numcols, numrows, numrows]
-			for i, key in enumerate(["zoom_xmin", "zoom_xmax", "zoom_ymin", "zoom_ymax"]):
-				val = view.find(key)
-				if not val is None:
-					zoom[i] = float(val.text)*norm[i] - 0.5
-				else:
-					zoom = None
-					break
-
-		self.initialView = zoom
 
 	def writeVTK(self):
 		
@@ -1322,14 +865,11 @@ class PlotWidget(QtWidgets.QWidget):
 		if (filename == ""):
 			return
 		
-		w = WriteVTKWidget(filename, self.rve_dims, self.field_groups, parent=self)
+		w = WriteVTKWidget(filename, parent=self)
 		w.exec_()
 
 
 	def writePNG(self):
-		
-		if (self.currentFieldIndex == None):
-			return
 		
 		filename, _filter = QtWidgets.QFileDialog.getSaveFileName(self, "Save PNG", os.getcwd(), "PNG Files (*.png)")
 		if (filename == ""):
@@ -1337,62 +877,6 @@ class PlotWidget(QtWidgets.QWidget):
 		filename, ext = os.path.splitext(filename)
 		filename += ".png"
 		
-		vmin = float(self.vminText.text())
-		vmax = float(self.vmaxText.text())
-		cm = mcmap.get_cmap(self.colormapCombo.currentText(), 2**13)
-
-		data = self.getCurrentSlice()
-		data = np.rot90(data)
-		data = (data-vmin)/(vmax-vmin)
-		data = cm(data)
-
-		image = np.zeros((data.shape[0], data.shape[1], 3), dtype=np.uint8)
-		image[:,:,0:3] = data[:,:,0:3]*255
-
-		img = scipy.misc.toimage(image, high=np.max(image), low=np.min(image))
-		img.save(filename, "PNG", compress_level=0)
-
-		
-		template_src = os.path.join(os.path.dirname(os.path.realpath(__file__)), "../gui/plot_template.tex")
-		template_dest, ext = os.path.splitext(filename)
-		template_dest += ".tex"
-		
-		with open(template_src, "rt") as f:
-			template = f.read()
-
-
-		colormap = ""
-		for c in np.linspace(0.0, 1.0, 256):
-			color = cm(c)
-			colormap += "rgb255=(%d, %d, %d);\n" % (color[0]*255.99, color[1]*255.99, color[2]*255.99)
-
-		#rgb255(1000pt)=(0, 255, 255)
-
-		labels = self.cb.ax.get_yticklabels()
-		labels = [l._text.replace("\u2212", "-") for l in labels]
-		zticks = ",".join(labels)
-		zticklabels = ",".join(["$%s$" % l for l in labels])
-
-		field = self.fields[self.currentFieldIndex]
-		zlabel = field.label
-		zlabel = zlabel.replace(u"ε", r'\varepsilon')
-		zlabel = zlabel.replace(u"σ", r'\sigma')
-		zlabel = zlabel.replace(u"φ", r'\varphi')
-		zlabel = zlabel.replace(u"∇", r'\nabla')
-		if ("_" in zlabel):
-			zlabel = zlabel.replace("_", '_{') + "}"
-		zlabel = "$" + zlabel + "$"
-
-		template = template.replace("#filename", os.path.basename(filename))
-		template = template.replace("#xmax", str(data.shape[1]))
-		template = template.replace("#ymax", str(data.shape[0]))
-		template = template.replace("#zmin", str(vmin))
-		template = template.replace("#zmax", str(vmax))
-		template = template.replace("#zlabel", zlabel)
-		template = template.replace("#zticks", zticks)
-		template = template.replace("#zticklabels", zticklabels)
-		template = template.replace("#colormap", colormap)
-
 		with codecs.open(template_dest, mode="w", encoding="utf-8") as f:
 			f.write(template)
 
@@ -1405,6 +889,14 @@ class PlotWidget(QtWidgets.QWidget):
 
 		#scipy.misc.imsave(filename, image) #, 'PNG')
 
+	def updateFigCanvasVisible(self):
+		if self.viewXMLButton.isChecked():
+			self.stack.setCurrentIndex(1)
+		elif self.viewResultDataButton.isChecked():
+			self.stack.setCurrentIndex(2)
+		else:
+			self.stack.setCurrentIndex(0)
+	
 	def viewResultData(self, state):
 		v = (state == 0)
 		self.viewXMLButton.setChecked(False)
@@ -1417,388 +909,47 @@ class PlotWidget(QtWidgets.QWidget):
 		self.viewXMLButton.setChecked(not v)
 		self.updateFigCanvasVisible()
 
-	def updateFigCanvasVisible(self):
-		if self.viewXMLButton.isChecked():
-			self.stack.setCurrentIndex(1)
-		elif self.viewResultDataButton.isChecked():
-			self.stack.setCurrentIndex(2)
-		else:
-			self.stack.setCurrentIndex(0)
-	
-	def colormapComboChanged(self, index):
-		self.replot()
-	
 	def loadstepSliderChanged(self):
-		data = self.getCurrentSlice()
-		self.resetBounds(data)
-		self.replot(data)
+		self.updateTimestep()
 		self.loadstepLabel.setText("%04d" % self.loadstepSlider.value())
 
-	def sliceComboChanged(self, index):
-		rs = self.replotSuspended
-		self.replotSuspended = True
-		self.lastSliceIndices[self.sliceCombo.lastIndex] = self.sliceSlider.value()
-		self.sliceCombo.lastIndex = index
-		self.replot_reset_limits = True
-		data_shape = self.fields[0].data[0].shape[1:4]
-		self.sliceSlider.setMaximum(data_shape[index]-1)
-		self.sliceSlider.setValue(self.lastSliceIndices[index])
-		self.replotSuspended = rs
-		self.sliceSliderChanged()
+	def updateTimestep(self):
 
-	def depthViewCheckChanged(self, state):
-		self.replot()
+		show_ghost = True
+		show_ghost = False
 
-	def interpolateCheckChanged(self, state):
-		self.replot()
+		ts = self.timesteps[self.loadstepSlider.value()]
+		molecules = ts.find("molecules")
+		ghost_molecules = {}
 
-	def customBoundsCheckChanged(self, state):
-		enable = (state != 0)
-		self.vminText.setEnabled(enable)
-		self.vmaxText.setEnabled(enable)
-		data = self.getCurrentSlice()
-		self.resetBounds(data)
-		if (state == 0):
-			self.replot(data)
+		if show_ghost:
+			ghost_molecules = ts.find("ghost_molecules")
 
-	def setAlpha(self, a):
-		a_max = 0.4999
-		a = max(min(a, a_max), 0.0)
-		self.alphaSlider.setValue(int(self.alphaSlider.maximum()*(a/a_max)**(1.0/3.0) + 0.5))
-	
-	def getAlpha(self):
-		return 0.4999*(self.alphaSlider.value()/self.alphaSlider.maximum())**3
-	
-	def getCurrentSlice(self):
-		if self.currentFieldIndex is None:
-			return None
+		n = len(molecules) + len(ghost_molecules)
+		self.position_data = np.zeros((n, 3))
+		self.size_data = np.zeros((n,))
+		self.color_data = np.zeros((n, 4))
+		self.color_data[0:len(molecules),:] = self.color_data0
+		self.size_data[0:len(molecules)] = self.size_data0
 
-		#print("getCurrentSlice")
-		#traceback.print_stack()
+		# add molecules
+		for i, m in enumerate(molecules):
+			self.position_data[i,:] = ET_get_vector(m, "p")
+			el = m.get("element")
 
-		field = self.fields[self.currentFieldIndex]
-		s_index = self.sliceSlider.value()
-		ls_index = self.loadstepSlider.value()
-		sliceIndex = self.sliceCombo.currentIndex()
-		depth = 1
-		depth_max = self.sliceSlider.maximum() - s_index + 1
+		# add ghost molecules
+		offset = len(molecules)
+		for i, gm in enumerate(ghost_molecules):
+			mi = int(gm.get("m"))	# molecule index
+			t = np.array(ET_get_vector(gm, "t"))
+			self.position_data[i + offset,:] = self.position_data[mi,:] + t
+			self.color_data[i + offset,:] = self.color_data[mi,:]
+			self.size_data[i + offset] = self.size_data[mi]
 
-		if field.name == "phi" and self.depthViewCheck.isChecked():
-			depth = 1 + self.sliceSlider.maximum()
+		self.rve_scatter_plot.setData(pos=self.position_data, color=self.color_data, size=self.size_data)
+		self.rve_view.update()
 
-		s_index_end = s_index + min(depth, depth_max)
 
-		# get mask
-		mask_fields = []
-		materials = self.field_groups[1]
-		if len(materials) >= 2:
-			for i, mfield in enumerate(materials):
-				if mfield.mask_button.isChecked():
-					mask_fields.append(mfield)
-
-		if (sliceIndex == 0):
-			data = field.data[ls_index][field.component,s_index:s_index_end,:,:]
-			mask = np.zeros_like(data) if len(mask_fields) else 1.0
-			for f in mask_fields:
-				mask = np.maximum(mask, f.data[ls_index][f.component,s_index:s_index_end,:,:])
-		elif (sliceIndex == 1):
-			data = field.data[ls_index][field.component,:,s_index:s_index_end,:]
-			mask = np.zeros_like(data) if len(mask_fields) else 1.0
-			for f in mask_fields:
-				mask = np.maximum(mask, f.data[ls_index][f.component,:,s_index:s_index_end,:])
-		else:
-			data = field.data[ls_index][field.component,:,:,s_index:s_index_end]
-			mask = np.zeros_like(data) if len(mask_fields) else 1.0
-			for f in mask_fields:
-				mask = np.maximum(mask, f.data[ls_index][f.component,:,:,s_index:s_index_end])
-
-		if depth >= 1:
-			z = np.indices(data.shape)[sliceIndex]
-			data = np.max(data*np.exp((-3.0/depth)*z), axis=sliceIndex)
-			if len(mask_fields):
-				mask = np.max(mask, axis=sliceIndex)
-		#else:
-		#	data = np.squeeze(data, axis=sliceIndex)
-
-		mask = mask == 1.0
-
-		return mask*data
-
-	def resetBounds(self, data=None):
-		if (self.customBoundsCheck.checkState() == 0 and self.currentFieldIndex != None):
-
-			if data is None:
-				data = self.getCurrentSlice()
-			
-			alpha = self.getAlpha()
-			vmin = np.amin(data)
-			vmax = np.amax(data)
-
-			if (alpha > 0):
-				nbins = self.alphaSlider.maximum()
-				hist, bins = np.histogram(data, range=(vmin, vmax), bins=nbins, density=True)
-				dx = (vmax-vmin)/nbins
-
-				s = 0
-				for i in range(nbins):
-					if (s >= alpha):
-						vmin = bins[i]
-						break
-					s += hist[i]*dx
-				
-				s = 0
-				for i in reversed(range(nbins)):
-					if (s >= alpha):
-						vmax = bins[i]
-						break
-					s += hist[i]*dx
-
-			self.vminText.setText(str(vmin))
-			self.vmaxText.setText(str(vmax))
-
-	def maskField(self, index, checked):
-		data = self.getCurrentSlice()
-		self.resetBounds(data)
-		self.replot(data)
-
-	def changeField(self, index, checked):
-
-		if (self.changeFieldSuspended):
-			return
-
-		data = None
-
-		if checked:
-			self.currentFieldIndex = index
-			self.changeFieldSuspended = True
-			for i, field in enumerate(self.fields):
-				field.button.setChecked(i == index)
-			self.changeFieldSuspended = False
-			data = self.getCurrentSlice()
-			self.resetBounds(data)
-			self.viewXMLButton.setChecked(False)
-			self.viewResultDataButton.setChecked(False)
-		else:
-			self.currentFieldIndex = None
-
-		self.replot(data)
-
-	def sliceSliderChanged(self):
-		data = self.getCurrentSlice()
-		self.resetBounds(data)
-		self.replot(data)
-		self.sliceLabel.setText("%s=%04d" % (self.sliceCombo.currentText(), self.sliceSlider.value()))
-
-	def alphaSliderChanged(self):
-		self.alphaLabel.setText("alpha=%4f" % self.getAlpha())
-		if self.customBoundsCheck.checkState() != 0:
-			self.customBoundsCheck.setCheckState(0)
-		else:
-			self.customBoundsCheckChanged(0)
-
-	def replot(self, data=None):
-
-		if self.replotSuspended:
-			return
-
-		#print("replot")
-		#traceback.print_stack()
-
-		self.replotCount += 1
-
-		xlim = None
-		ylim = None
-
-		firstReplot = self.cb is None
-
-		if not firstReplot:
-			if not self.replot_reset_limits:
-				xlim = self.axes.get_xlim()
-				ylim = self.axes.get_ylim()
-			self.cb.ax.clear()
-			cbax = self.cb.ax
-		else:
-			cbax = None
-		
-		self.axes.clear()
-
-		if (self.currentFieldIndex != None):
-			
-			if data is None:
-				data = self.getCurrentSlice()
-
-			s_index = self.sliceCombo.currentIndex()
-			coords = ["x", "y", "z"]
-			z_cord = coords[s_index]
-			xy_cord = coords
-			del xy_cord[s_index]
-
-			vmin = float(self.vminText.text())
-			vmax = float(self.vmaxText.text())
-			
-			# NOTE: interpolation is matplotlib 2.0 is still buggy
-			# https://github.com/matplotlib/matplotlib/issues/8631
-			#methods = ['bilinear', 'bicubic', 'spline16', 'spline36', 'hanning', 'hamming', 'hermite', 'kaiser', 'quadric', 'catrom', 'gaussian', 'bessel', 'mitchell', 'sinc', 'lanczos']
-			interpolation = "bicubic" if self.interpolateCheck.isChecked() else "nearest"
-
-			field_name = self.fields[self.currentFieldIndex].name
-			num_colors = self.fields[self.currentFieldIndex].num_discrete_values
-			value_labels = self.fields[self.currentFieldIndex].value_labels
-			if np.isinf(num_colors):
-				num_colors = 2**11
-
-			if field_name == "phi":
-				vmin = 0.0
-				vmax = 1.0
-
-			if len(value_labels) > 0:
-				vmin = 0
-				vmax = len(value_labels)
-				interpolation = "nearest"
-
-			#color_norm = matplotlib.colors.SymLogNorm(linthresh=1e-2, linscale=1)
-			cm = mcmap.get_cmap(self.colormapCombo.currentText(), num_colors)
-
-			p = self.axes.imshow(data.T, interpolation=interpolation, origin="lower",
-				norm=None, cmap=cm, vmin=vmin, vmax=vmax)
-
-			if (cbax != None):
-				self.cb = self.fig.colorbar(p, cax=cbax)
-			else:
-				self.cb = self.fig.colorbar(p, shrink=0.7, pad=0.05, fraction=0.1, use_gridspec=True)
-		
-			if len(value_labels) > 0:
-				self.cb.set_ticks(list(value_labels.keys()))
-				self.cb.set_ticklabels(list(value_labels.values()))
-
-			z_label = self.fields[self.currentFieldIndex].label
-			self.cb.ax.set_title(z_label, y=1.03)
-
-			numcols, numrows = data.shape
-			def format_coord(x, y):
-				col = int(x+0.5)
-				row = int(y+0.5)
-				s = '%s = %d, %s = %d' % (xy_cord[0], col, xy_cord[1], row)
-				if col>=0 and col<numcols and row>=0 and row<numrows:
-					z = data[col,row]
-					return '%s\n%s = %.8g' % (s, z_label, z)
-				else:
-					return s
-			def get_cursor_data(event):
-				return None
-			self.axes.format_coord = format_coord
-			p.get_cursor_data = get_cursor_data
-
-			font = QtGui.QFontDatabase.systemFont(QtGui.QFontDatabase.GeneralFont)
-			self.axes.set_xlabel(xy_cord[0], labelpad=font.pointSize())
-			self.axes.set_ylabel(xy_cord[1], labelpad=font.pointSize())
-
-			# show grid
-			if self.showGridAction.isChecked():
-				b = 1
-				self.axes.set_xticks(np.arange(-0.5+b, numcols-b, 1), minor=True);
-				self.axes.set_yticks(np.arange(-0.5+b, numrows-b, 1), minor=True);
-				self.axes.grid(which='minor', color='w', linestyle='-', alpha=0.5, linewidth=0.5, antialiased=False, snap=True)
-
-			if (xlim == None):
-				xlim = [0, numcols-1]
-			if (ylim == None):
-				ylim = [0, numrows-1]
-			
-			self.figcanvas.setVisible(True)
-			self.fignavbar.setVisible(True)
-		else:
-			self.figcanvas.setVisible(False)
-			self.fignavbar.setVisible(False)
-
-		if (xlim != None):
-			self.axes.set_xlim(xlim)
-		if (ylim != None):
-			self.axes.set_ylim(ylim)
-
-		"""
-		self.axes.xaxis.set_major_formatter(mtick.FormatStrFormatter('%d'))
-		self.axes.yaxis.set_major_formatter(mtick.FormatStrFormatter('%d'))
-		"""
-
-		if self.replot_reset_limits:
-			self.fignavbar.update()
-
-		if firstReplot:
-			self.figcanvas.draw()
-
-			if not self.initialView is None:
-				# /usr/lib/python3/dist-packages/matplotlib/backend_bases.py
-				views = []
-				pos = []
-				for a in self.figcanvas.figure.get_axes():
-					views.append(a._get_view())
-					pos.append((
-						a.get_position(True).frozen(),
-						a.get_position().frozen()))
-				if len(views):
-					if hasattr(self.fignavbar, "_views"):
-						self.fignavbar._views.push(views)
-						self.fignavbar._positions.push(pos)
-						views = copy.copy(views)
-						views[0] = tuple(self.initialView)
-						self.fignavbar._views.push(views)
-						self.fignavbar._positions.push(pos)
-						self.fignavbar._views._pos = len(self.fignavbar._views._elements)-1
-						self.fignavbar._positions._pos = len(self.fignavbar._positions._elements)-1
-					else:
-						self.fignavbar._nav_stack.push(
-							WeakKeyDictionary(
-								{ax: (views[i], pos[i])
-							for i, ax in enumerate(self.figcanvas.figure.get_axes())}))
-						views = copy.copy(views)
-						views[0] = tuple(self.initialView)
-						self.fignavbar._nav_stack.push(
-							WeakKeyDictionary(
-								{ax: (views[i], pos[i])
-							for i, ax in enumerate(self.figcanvas.figure.get_axes())}))
-						self.fignavbar._nav_stack._pos = len(self.fignavbar._nav_stack._elements)-1
-
-		self.fignavbar_update_view()
-		self.replot_reset_limits = False
-
-	def fignavbar_update_view(self):
-		
-		self.fignavbar._update_view_old()
-
-		s = self.figcanvas.size()
-		s.setWidth(s.width()+0)
-		e = QtGui.QResizeEvent(s, self.figcanvas.size())
-		self.figcanvas.resizeEvent(e)
-
-		self.figcanvas.draw()
-
-		#print("update")
-
-	def redrawCanvas(self):
-
-		self.figcanvas.draw()
-
-		if hasattr(self.fignavbar, "_views"):
-			views = self.fignavbar._views()
-			if not views is None:
-				pos = self.fignavbar._positions()
-				for i, a in enumerate(self.figcanvas.figure.get_axes()):
-					a._set_view(views[i])
-					# Restore both the original and modified positions
-					a.set_position(pos[i][0], 'original')
-					a.set_position(pos[i][1], 'active')
-					#a.reset_position()
-		else:
-			views = self.fignavbar._nav_stack()
-			if not views is None:
-				items = list(views.items())
-				for ax, (view, (pos_orig, pos_active)) in items:
-					ax._set_view(view)
-					# Restore both the original and modified positions
-					ax.set_position(pos_orig, 'original')
-					ax.set_position(pos_active, 'active')
-					#ax.reset_position()
 
 
 class XMLHighlighter(QtGui.QSyntaxHighlighter):
@@ -3255,73 +2406,10 @@ class MainWindow(QtWidgets.QMainWindow):
 			xml_root = None
 			print(traceback.format_exc())
 
-		coord_names1 = ["x", "y", "z"]
-		coord_names2 = ["xx", "yy", "zz", "yz", "xz", "xy", "zy", "zx", "yx"]
 
-		field_labels = {"phi": lambda i: (u"φ_%d" % i, "phase %d" % i),
-			"epsilon": lambda i: (u"ε_%s" % coord_names2[i], "strain %s" % coord_names2[i]),
-			"sigma": lambda i: (u"σ_%s" % coord_names2[i], "stress %s" % coord_names2[i]),
-			"u": lambda i: ("u_%s" % coord_names1[i], "displacement %s" % coord_names1[i]),
-			"normals": lambda i: ("n_%s" % coord_names1[i], "normal %s" % coord_names1[i]),
-			"orientation": lambda i: ("o_%s" % coord_names1[i], "orientation %s" % coord_names1[i]),
-			"fiber_translation": lambda i: ("t_%s" % coord_names1[i], "fiber_translation %s" % coord_names1[i]),
-			"fiber_id": lambda i: ("fid", "fiber id"),
-			"p": lambda i: ("p", "pressure"),
-			"distance": lambda i: ("d", "normal distance"),
-			"material_id": lambda i: ("mid", "material id"),
-		}
-
-		extra_fields_list = ["fiber_id", "fiber_translation", "normals", "orientation", "distance"]
-		extra_fields = []
-		record_loadstep = -1
-
-		if not xml_root is None:
-			view = xml_root.find("view")
-			if not view is None:
-				rl = view.find("record_loadstep")
-				if not rl is None:
-					record_loadstep = int(rl.text)
-				ef = view.find("extra_fields")
-				if not ef is None:
-					ef = ef.text.split(",")
-					for f in ef:
-						if f in extra_fields_list:
-							extra_fields.append(f)
-
-		phase_fields = ["material_id", "phi"]
-		run_fields = ["epsilon", "sigma", "u"]
-		const_fields = phase_fields + extra_fields
-		field_names = phase_fields + run_fields + extra_fields
-
-		mode = "elasticity"
-
-		if (mode == "viscosity"):
-			field_labels["epsilon"] = lambda i: (u"σ_%s" % coord_names2[i], "fluid stress %s" % coord_names2[i])
-			field_labels["sigma"] = lambda i: (u"ɣ_%s" % coord_names2[i], "shear rate %s" % coord_names2[i])
-			run_fields.append("p")
-
-		if (mode == "heat"):
-			field_labels["u"] = lambda i: ("T", "temperature")
-			field_labels["epsilon"] = lambda i: (u"∇T_%s" % coord_names1[i], "temperature gradient %s" % coord_names1[i])
-			field_labels["sigma"] = lambda i: ("q_%s" % coord_names1[i], "heat flux %s" % coord_names1[i])
-		if (mode == "porous"):
-			field_labels["u"] = lambda i: ("p", "pressure")
-			field_labels["epsilon"] = lambda i: (u"∇p_%s" % coord_names1[i], "pressure gradient %s" % coord_names1[i])
-			field_labels["sigma"] = lambda i: ("v_%s" % coord_names1[i], "volumetric flux %s" % coord_names1[i])
-
-		field_groups = []
-		mean_strains = []
-		mean_stresses = []
-		loadstep_called = []
-		phase_names = []
-
-		get_mean_values = False
-
-		"""
 		progress = QtWidgets.QProgressDialog("Computation is running...", "Cancel", 0, 0, self)
 		progress.setWindowTitle("Run")
 		progress.setWindowFlags(progress.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint)
-		"""
 
 		#progress.setWindowModality(QtCore.Qt.WindowModal)
 		#tol = hm.get("solver.tol".encode('utf8'))
@@ -3331,78 +2419,12 @@ class MainWindow(QtWidgets.QMainWindow):
 				QtWidgets.QApplication.processEvents()
 
 		def loadstep_callback():
-			
 			process_events()
-
-			loadstep_called.append(1)
-
-			if record_loadstep >= 0 and record_loadstep != len(loadstep_called):
-				return progress.wasCanceled()
-
-			if len(field_groups) == 0:
-				phase_names = hm.get_phase_names()
-				field_labels['phi'] = lambda i: (phase_names[i], "%s material" % phase_names[i])
-				phi = hm.get_field("phi")
-				for name in field_names:
-					num_discrete_values = float('inf')
-					value_labels = {}
-					if name == "material_id":
-						ids = np.array(range(phi.shape[0]))
-						#data = np.expand_dims(np.argmax(ids[:,np.newaxis,np.newaxis,np.newaxis]*phi, axis=0), axis=0)
-						data = np.expand_dims(np.argmax(phi, axis=0), axis=0)
-						num_discrete_values = len(ids)
-						value_labels = {i+0.5: field_labels['phi'](i)[0] for i in ids}
-					elif name == "phi":
-						data = phi
-					else:
-						data = hm.get_field(name.encode('utf8'))
-					shape = data.shape
-					fields = []
-					#print(name, shape)
-					for i in range(shape[0]):
-						field = PlotField()
-						field.data = [data]
-						field.label, field.description = field_labels[name](i)
-						field.name = name
-						field.key = name if shape[0] == 1 else (name + str(i))
-						field.component = i
-						field.num_discrete_values = num_discrete_values
-						field.value_labels = value_labels
-						#field.amin = np.amin(data[i])
-						#field.amax = np.amax(data[i])
-						fields.append(field)
-					field_groups.append(fields)
-					process_events()
-			else:
-				for field_group in field_groups:
-					for field in field_group:
-						if field.name in const_fields:
-							data = field.data[-1]
-						else:
-							data = hm.get_field(field.name.encode('utf8'))
-						field.data.append(data)
-						process_events()
-
 			return progress.wasCanceled()
 
 
-		def convergence_callback():
-			#residual = hm.get_residuals()[-1]
-			#print "res=", residual
-			# progress.setValue(100)
-			process_events()
-			if get_mean_values:
-				mean_strains.append(hm.get_mean_strain())
-				process_events()
-				mean_stresses.append(hm.get_mean_stress())
-				process_events()
-			return progress.wasCanceled()
-
-
-		"""
 		try:
 			hm.set_loadstep_callback(loadstep_callback)
-			hm.set_convergence_callback(convergence_callback)
 			#print hm.get_xml()
 
 			progress.show()
@@ -3417,21 +2439,12 @@ class MainWindow(QtWidgets.QMainWindow):
 				del hm
 				return
 
-			#if record_loadstep != 0:
-			#	hm.init_phase()
-
-			if len(loadstep_called) == 0 and record_loadstep != 0:
-				field_names = const_fields
-				loadstep_callback()
-
 		except:
 			print(traceback.format_exc())
-		"""
 
-		"""
-		progress.close()
 		process_events()
-		"""
+		progress.close()
+		progress.hide()
 		
 		self.runCount += 1
 
@@ -3442,12 +2455,16 @@ class MainWindow(QtWidgets.QMainWindow):
 		elif other.file_id != self.file_id:
 			other = None
 
-		rve_dims = [1.0, 1.0, 1.0]
-		field_groups = []
-		extra_fields = []
-		resultText = ""
 
-		tab = PlotWidget(rve_dims, field_groups, extra_fields, xml, xml_root, resultText, other)
+
+		result_dir = os.path.dirname(self.filename) if not self.filename is None else os.getcwd()
+		result_file = os.path.join(result_dir, "results.xml")
+		with open(result_file, "rt") as f:
+			resultText = f.read()
+		#result_xml = ET.parse(result_file).getroot()
+		result_xml = ET.fromstring(resultText)
+
+		tab = PlotWidget(xml, xml_root, resultText, result_xml, other)
 		tab.file_id = self.file_id
 
 		i = self.addTab(tab, "Run_%d" % self.runCount)
@@ -3465,6 +2482,7 @@ class App(QtWidgets.QApplication):
 		#parser.add_argument('--disable-web-security', action='store_true', default=True, help='disable browser security')
 		parser.add_argument('--disable-browser', action='store_true', default=(not "QtWebKitWidgets" in globals()), help='disable browser components')
 		parser.add_argument('--disable-python', action='store_true', default=False, help='disable Python code evaluation in project files')
+		parser.add_argument('--run', action='store_true', default=False, help='run project')
 		parser.add_argument('--style', default="", help='set application style')
 		self.pargs = parser.parse_args(args[1:])
 		print(self.pargs)
@@ -3517,7 +2535,8 @@ class App(QtWidgets.QApplication):
 		try:
 			if (not self.pargs.project is None):
 				self.window.openProject(self.pargs.project)
-				#self.window.runProject()
+				if (self.pargs.run):
+					self.window.runProject()
 			else:
 				self.window.newProjectGui()
 		except:

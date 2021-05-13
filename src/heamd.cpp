@@ -1337,27 +1337,81 @@ class Element
 public:
 	T r;	// radius
 	T m;	// mass
-	int Z;	// atomic number
-};
+	std::size_t 	Z;	// atomic number
+	std::string 	color;
+	std::string 	id;
 
+	Element()
+	{
+		r = 1.0;
+		m = 1.0;
+		Z = 1.0;
+		color = "#ffffff";
+		id = "H";
+	}
+};
 
 
 template <typename T, int DIM>
 class ElementDatabase
 {
+protected:
 	typedef std::map<std::string, boost::shared_ptr<Element<T,DIM> > > ElementMap;
 
-	ElementMap map;
+	ElementMap _map;
 
 public:
 	// reads element objects form xml file
 	void load(const std::string& filename)
 	{
+		LOG_COUT << "load element file  " << filename << std::endl;
+		ptree::ptree xml_root;
+		read_xml(filename, xml_root, 0*ptree::xml_parser::trim_whitespace);
+		const ptree::ptree& elements = xml_root.get_child("elements", empty_ptree);
+		this->load_xml(elements);
+	}
 
+	void load_xml(const ptree::ptree& elements)
+	{
+		BOOST_FOREACH(const ptree::ptree::value_type &v, elements)
+		{
+			// skip comments
+			if (v.first == "<xmlcomment>") {
+				continue;
+			}
+
+			const ptree::ptree& attr = v.second.get_child("<xmlattr>", empty_ptree);
+
+			if (v.first == "element")
+			{
+				std::string id = pt_get<std::string>(attr, "id", "");
+				boost::shared_ptr<Element<T,DIM> > element;
+
+				if (_map.count(id) == 0) {
+					LOG_COUT << "new element " << id << std::endl;
+					element.reset(new Element<T,DIM>());
+					element->id = id;
+					_map[id] = element;
+				}
+				else {
+					LOG_COUT << "update element " << id << std::endl;
+					element = _map[id];
+				}
+
+				element->Z = pt_get<std::size_t>(attr, "Z", element->Z);
+				element->m = pt_get<T>(attr, "m", element->m);
+				element->r = pt_get<T>(attr, "r", element->r);
+				element->color = pt_get<std::string>(attr, "color", element->color);
+			}
+			else {
+				BOOST_THROW_EXCEPTION(std::runtime_error((boost::format("Unknown element: '%s'") % v.first).str()));
+			}
+		}
 	}
 
 	boost::shared_ptr<Element<T,DIM> > get(const std::string& key)
 	{
+		return _map[key];
 	}
 };
 
@@ -1386,8 +1440,9 @@ public:
 template <typename T, int DIM>
 class GhostMolecule : public MoleculeBase<T, DIM>
 {
+public:
 	ublas::c_vector<T, DIM> t;	// translation
-	boost::shared_ptr<Molecule<T, DIM> > molecule;    // base molecule 
+	std::size_t molecule_index;    // base molecule 
 };
 
 
@@ -1425,6 +1480,8 @@ public:
 	virtual const ublas::c_vector<T, DIM>& bb_origin() const = 0;
 	virtual const ublas::c_vector<T, DIM>& bb_size() const = 0;
 	virtual T volume() const = 0;
+
+	virtual const std::vector< ublas::c_vector<T, DIM> >& neighbour_translations() const = 0;
 };
 
 
@@ -1433,15 +1490,16 @@ class CubicUnitCell : public UnitCell<T, DIM>
 {
 protected:
 	// cell dimensions
-	ublas::c_vector<T, DIM> _L;
-	ublas::c_vector<T, DIM> _p0;
+	ublas::c_vector<T, DIM> _p;
+	ublas::c_vector<T, DIM> _a;
+	std::vector< ublas::c_vector<T, DIM> > _neighbour_translations;
 
 public:
 	CubicUnitCell()
 	{
 		for (int d = 0; d < DIM; d++) {
-			_L[d] = 1.0;
-			_p0[d] = 0.0;
+			_p[d] = 0.0;
+			_a[d] = 1.0;
 		}
 	}
 
@@ -1449,28 +1507,59 @@ public:
 	void readSettings(const ptree::ptree& pt)
 	{
 		for (int d = 0; d < DIM; d++) {
-			_L[d] = pt_get<std::size_t>(pt, (boost::format("L%s") % d).str(), _L[d]);
+			_p[d] = pt_get<T>(pt, (boost::format("p%s") % d).str(), _p[d]);
+			_a[d] = pt_get<T>(pt, (boost::format("a%s") % d).str(), _a[d]);
 		}
 
+		// compute neighbour translations
+		std::size_t m = 4 << (2*DIM - 2);
+		for (std::size_t i = 0; i < m; i++)
+		{
+			bool valid = true;
+			ublas::c_vector<T, DIM> t;
+			
+			for (int d = 0; d < DIM; d++)
+			{
+				int ti = (i & (3 << (2*d))) >> (2*d);
+				if (ti == 3) {
+					valid = false;
+					break;
+				}
+				t[d] = _a[d]*(T)(ti - 1);
+			}
 
+			if (!valid) continue;
+			if (ublas::inner_prod(t, t) == (T)0) continue;
+			
+			_neighbour_translations.push_back(t);
+
+			LOG_COUT << "neighbour translation " << t[0] << " " << t[1] << " " << t[2] << std::endl;
+		}
 	}
 
 	void wrap_vector(ublas::c_vector<T, DIM>& v) const
 	{
-		// TODO
+		ublas::c_vector<T, DIM> n;
+
+		for (int d = 0; d < DIM; d++) {
+			n[d] = (v[d] - _p[d])/_a[d];
+			v[d] -= std::floor(n[d])*_a[d];
+		}
 	}
 
-	const ublas::c_vector<T, DIM>& bb_origin() const { return _p0; }
-	const ublas::c_vector<T, DIM>& bb_size() const { return _L; }
+	const ublas::c_vector<T, DIM>& bb_origin() const { return _p; }
+	const ublas::c_vector<T, DIM>& bb_size() const { return _a; }
 
 	T volume() const
 	{
-		T V = _L[0];
+		T V = _a[0];
 		for (int d = 1; d < DIM; d++) {
-			V *= _L[d];
+			V *= _a[d];
 		}
 		return V;
 	}
+
+	const std::vector< ublas::c_vector<T, DIM> >& neighbour_translations() const { return _neighbour_translations; }
 };
 
 
@@ -1547,6 +1636,23 @@ public:
 */
 };
 
+template <typename D, int DIM>
+class SimulationInterval
+{
+public:
+	D t, T, p, dt;
+};
+
+
+template <typename T, int DIM>
+class ElementFraction
+{
+public:
+	boost::shared_ptr<Element<T,DIM> > element;
+	T fraction;
+};
+
+
 
 template <typename T, int DIM>
 class MDSolver
@@ -1555,20 +1661,28 @@ protected:
 	std::string _cell_type;
 	std::string _result_filename;
 	std::size_t _N;
+	std::size_t _store_interval;
+	std::size_t _ghost_offset;
 	boost::shared_ptr< UnitCell<T, DIM> > _cell;
 	boost::shared_ptr< VerletMap<T, DIM> > _vmap;
+	boost::shared_ptr< ElementDatabase<T, DIM> > _element_db;
 	std::array<std::size_t, DIM> _vdims;
-	T _nn_distance_factor;	// relative number of nearst neighbours included in the Verlet map
+	T _nn_levels;	// relative number of nearst neighbours included in the Verlet map
+	T _nn_radius;
 
 	std::vector< boost::shared_ptr< Molecule<T, DIM> > > _molecules;
-
+	std::list< boost::shared_ptr< GhostMolecule<T, DIM> > > _ghost_molecules;
+	std::list< boost::shared_ptr< SimulationInterval<T, DIM> > > _intervals;
+	std::list< boost::shared_ptr< ElementFraction<T, DIM> > > _fractions;
 
 public:
 	MDSolver()
 	{
 		_cell_type = "cubic";
-		_nn_distance_factor = 1.0;
+		_nn_radius = -1.0;
+		_nn_levels = 1.0;
 		_result_filename = "results.xml";
+		_store_interval = 1;
 	}
 
 	//! read settings from ptree
@@ -1576,30 +1690,107 @@ public:
 	{
 		_N = pt_get<std::size_t>(pt, "n", _N);
 
-		_cell_type = pt_get<std::string>(pt, "cell_type", _cell_type);
 		_result_filename = pt_get<std::string>(pt, "result_filename", _result_filename);
+		_store_interval = pt_get<std::size_t>(pt, "store_interval", _store_interval);
+		_nn_levels = pt_get<T>(pt, "nn_levels", _nn_levels);
+		_nn_radius = pt_get<T>(pt, "nn_radius", _nn_radius);
 
+		// load element database
+		std::string element_db_filename = pt_get<std::string>(pt, "element_db", "elements.xml");
+		_element_db.reset(new ElementDatabase<T, DIM>());
+		_element_db->load(element_db_filename);
+		const ptree::ptree& elements = pt.get_child("elements", empty_ptree);
+		_element_db->load_xml(elements);
+
+		// read the cell
+
+		const ptree::ptree& cell = pt.get_child("cell", empty_ptree);
+		_cell_type = pt_get<std::string>(cell, "type", _cell_type);
+
+		if (_cell_type == "cubic") {
+			_cell.reset(new CubicUnitCell<T, DIM>());
+		}
+
+		_cell->readSettings(cell);
+
+		// read volume fractions
+
+		const ptree::ptree& fractions = pt.get_child("fractions", empty_ptree);
+
+		BOOST_FOREACH(const ptree::ptree::value_type &v, fractions)
+		{
+			// skip comments
+			if (v.first == "<xmlcomment>") {
+				continue;
+			}
+
+			const ptree::ptree& attr = v.second.get_child("<xmlattr>", empty_ptree);
+
+			if (v.first == "fraction") {
+				boost::shared_ptr< ElementFraction<T, DIM> > fr;
+				fr.reset(new ElementFraction<T, DIM>());
+
+				std::string element_id = pt_get<std::string>(attr, "element", "");
+				fr->element = _element_db->get(element_id);
+				fr->fraction = pt_get<T>(attr, "value", 0.0);
+				_fractions.push_back(fr);
+
+				LOG_COUT << "fraction " << element_id << " = " << fr->fraction << std::endl;
+			}
+		}
+		// read time steps
+
+		const ptree::ptree& steps = pt.get_child("steps", empty_ptree);
+
+		T last_t = 0;
+		T last_T = 300;
+		T last_p = 1;
+		T last_dt = pt_get<T>(pt, "dt", 1.0);
+
+		BOOST_FOREACH(const ptree::ptree::value_type &v, steps)
+		{
+			// skip comments
+			if (v.first == "<xmlcomment>") {
+				continue;
+			}
+
+			const ptree::ptree& attr = v.second.get_child("<xmlattr>", empty_ptree);
+
+			if (v.first == "step") {
+				boost::shared_ptr< SimulationInterval<T, DIM> > iv;
+				iv.reset(new SimulationInterval<T, DIM>());
+				iv->t = pt_get<T>(attr, "t", last_t);
+				iv->T = pt_get<T>(attr, "T", last_T);
+				iv->p = pt_get<T>(attr, "p", last_p);
+				iv->dt = pt_get<T>(attr, "dt", last_dt);
+				last_t = iv->t;
+				last_T = iv->T;
+				last_p = iv->p;
+				last_dt = iv->dt;
+				_intervals.push_back(iv);
+			}
+		}
 	}
 
 	void init()
 	{
 		LOG_COUT << "init" << std::endl;
 
-		if (_cell_type == "cubic") {
-			_cell.reset(new CubicUnitCell<T, DIM>());
-		}
-
 		// compute number of Verlet divisions for each dimension
 		const ublas::c_vector<T, DIM>& bb_size = _cell->bb_size();
 		T vol_per_element = _cell->volume()/_N;
-		T nn_distance = std::pow(vol_per_element, 1/(T)DIM);
+		
+		if (_nn_radius < 0) {
+			_nn_radius = std::pow(vol_per_element, 1/(T)DIM)*_nn_levels;
+		}
 
 		for (std::size_t d = 0; d < DIM; d++) {
-			_vdims[d] = std::max((int)std::ceil(bb_size[d]/nn_distance), 1) + 2;	// +2 for periodic boundary cells
+			_vdims[d] = std::max((int)std::ceil(bb_size[d]/_nn_radius), 1) + 2;	// +2 for periodic boundary cells
 		}
 		_vmap.reset(new VerletMap<T, DIM>(_vdims));
 
 		LOG_COUT << "Verlet dimensions x = " << _vdims[0] << std::endl;
+		LOG_COUT << "Nearst neighbour radius = " << _nn_radius << std::endl;
 
 		init_molecules();
 	}
@@ -1614,8 +1805,48 @@ public:
 		
 		write_header(f);
 
-		for (std::size_t i = 0; i < 5; i++) {
-			write_timestep(0.0, f);
+		if (_intervals.size() < 2) {
+			BOOST_THROW_EXCEPTION(std::runtime_error("Less than 2 simulation steps defined"));
+		}
+
+		auto it0 = _intervals.begin();
+		auto it1 = std::next(it0);
+		std::size_t istep = 0;
+
+		while (it1 != _intervals.end())
+		{
+			std::size_t n = (std::size_t) std::round(((*it1)->t - (*it0)->t) / (*it0)->dt);
+			n = std::max(n, (std::size_t) 1);
+			T dt = ((*it1)->t - (*it0)->t) / (T)n;
+			T dT = ((*it1)->T - (*it0)->T) / (T)n;
+			T dp = ((*it1)->p - (*it0)->p) / (T)n;
+			bool last_interval = false;
+
+			if (std::next(it1) == _intervals.end()) {
+				n++;
+				last_interval = true;
+			}
+
+			for (std::size_t i = 0; i < n; i++)
+			{
+				T t = (*it0)->t + i*dt;
+				T p = (*it0)->p + i*dp;
+				T Tp = (*it0)->T + i*dT;
+				
+				if (istep % _store_interval == 0) {
+					write_timestep(istep, t, Tp, p, f);
+				}
+				
+				bool last_step = last_interval && (i == n-1);
+
+				if (!last_step) {
+					perform_timestep(t, dt, Tp, dT, p, dp);
+					istep++;
+				}
+			}
+
+			++it0;
+			++it1;
 		}
 
 		write_tailing(f);
@@ -1633,7 +1864,7 @@ public:
 		const ublas::c_vector<T, DIM>& L = _cell->bb_size();
 		f << "\t\t<size";
 			for (std::size_t d = 0; d < DIM; d++)
-				f << (boost::format(" s%d='%g'") % d % L[d]).str();
+				f << (boost::format(" a%d='%g'") % d % L[d]).str();
 		f << " />\n";
 		f << "\t\t<origin";
 			for (std::size_t d = 0; d < DIM; d++)
@@ -1641,10 +1872,18 @@ public:
 		f << " />\n";
 		f << "\t</cell>\n";
 	
+		f << "\t<elements>\n";
+			auto fr = _fractions.begin();
+			while (fr != _fractions.end())
+			{
+				f << (boost::format("\t\t<element id='%s' r='%g' fraction='%g' color='%s' />\n") % (*fr)->element->id % (*fr)->element->r % (*fr)->fraction % (*fr)->element->color).str();
+				++fr;
+			}
+		f << "\t</elements>\n";
+		
 		f << "\t<molecules>\n";
 			for (std::size_t i = 0; i < _molecules.size(); i++) {
-				f << (boost::format("\t\t<molecule id='%d'>") % i).str();
-				f << "\t\t</molecule>\n";
+				f << (boost::format("\t\t<molecule id='%d' element='%s' />\n") % i % _molecules[i]->element->id).str();
 			}
 		f << "\t</molecules>\n";
 		
@@ -1659,9 +1898,22 @@ public:
 		f.close();
 	}
 
-	void write_timestep(T t, std::ofstream & f)
+	void perform_timestep(T t, T dt, T Tp, T dT, T p, T dp)
 	{
-		f << (boost::format("\t\t<timestep t='%g'>\n") % t).str();
+		//LOG_COUT << "t = " << t << ", dt = " << dt << ", x0 = " << _molecules[0]->x[0] << ", v0 = " << _molecules[0]->v[0] << std::endl;
+		
+		for (std::size_t i = 0; i < _molecules.size(); i++) {
+			_molecules[i]->x += dt*_molecules[i]->v;
+			_molecules[i]->v += dt*_molecules[i]->a;
+			_cell->wrap_vector(_molecules[i]->x);
+		}
+
+		verlet_update();
+	}
+
+	void write_timestep(std::size_t index, T t, T Tp, T p, std::ofstream & f)
+	{
+		f << (boost::format("\t\t<timestep t='%g' T='%g' p='%g'>\n") % t % Tp % p).str();
 
 		f << "\t\t\t<molecules>\n";
 			for (std::size_t i = 0; i < _molecules.size(); i++) {
@@ -1674,73 +1926,107 @@ public:
 				f << " />\n";
 			}
 		f << "\t\t\t</molecules>\n";
-		
+
+		f << "\t\t\t<ghost_molecules>\n";
+			auto it = _ghost_molecules.begin();
+			while (it != _ghost_molecules.end()) {
+				f << (boost::format("\t\t\t\t<ghost_molecule m='%d'") % (*it)->molecule_index).str();
+				for (std::size_t d = 0; d < DIM; d++) {
+					f << (boost::format(" t%d='%g'") % d % (*it)->t[d]).str();
+				}
+				f << " />\n";
+				++it;
+			}
+		f << "\t\t\t</ghost_molecules>\n";
+
+
 		f << "\t\t</timestep>\n";
 	}
 
 	
 	void init_molecules()
 	{
-		RandomNormal01<T>& rnd = RandomNormal01<T>::instance();
+		RandomUniform01<T>& rnd = RandomUniform01<T>::instance();
 		const ublas::c_vector<T, DIM>& p0 = _cell->bb_origin();
 		const ublas::c_vector<T, DIM>& L = _cell->bb_size();
 
-		// create N molecules
+		// create N molecules based on the provided fractions
 		std::list< boost::shared_ptr< Molecule<T, DIM> > > molecules;
-		for (std::size_t i = 0; i < _N; i++)
-		{
-			boost::shared_ptr< Molecule<T, DIM> > m;
-			m.reset(new Molecule<T, DIM>());
+		auto fr = _fractions.begin();
 
-			// create random position and velocity
-			for (std::size_t j = 0; j < DIM; j++) {
-				m->x[j] = p0[j] + L[j]*rnd.rnd();
-				m->a[j] = (T)0;
-				m->v[j] = (T)0;
+		while (fr != _fractions.end())
+		{
+			std::size_t n = (std::size_t) std::round((*fr)->fraction * _N);
+
+			for (std::size_t i = 0; i < n; i++)
+			{
+				boost::shared_ptr< Molecule<T, DIM> > m;
+				m.reset(new Molecule<T, DIM>());
+				m->element = (*fr)->element;
+
+				// create random position and velocity
+				for (std::size_t j = 0; j < DIM; j++) {
+					m->x[j] = p0[j] + L[j]*rnd.rnd();
+					m->a[j] = 0.01*(rnd.rnd() - 0.5);
+					m->v[j] = 0.1*(rnd.rnd() - 0.5);
+				}
+
+				// wrap position
+				_cell->wrap_vector(m->x);
+				m->x0 = m->x;
+
+				// add molecule
+				molecules.push_back(m);
 			}
 
-			// wrap position
-			_cell->wrap_vector(m->x);
-			m->x0 = m->x;
-
-			// add molecule
-			molecules.push_back(m);
+			++fr;
 		}
 
-		// init verlet map
+		// copy to vector
 		_molecules.resize(molecules.size());
-		
+
 		auto it = molecules.begin();
 		for (std::size_t i = 0; i < molecules.size(); i++) {
 			_molecules[i] = *it;
 			++it;
 		}
 
+		// set offset for ghost cells
+		_ghost_offset = molecules.size();
+
+		// init verlet map
 		verlet_update();
 	}
 
 	void verlet_update()
 	{
 		_vmap->clear();
+		_ghost_molecules.clear();
 
-		for (std::size_t i = 0; i < _molecules.size(); i++) {
+		for (std::size_t i = 0; i < _molecules.size(); i++)
+		{
 			verlet_add(i);
 		}
 	}
 
 	// compute verlet map index from position
 	// position must be within the bb of the cell
-	void verlet_index(const ublas::c_vector<T, DIM>& p, std::array<std::size_t, DIM>& index)
+	// return true if position is valid
+	bool verlet_index(const ublas::c_vector<T, DIM>& p, std::array<std::size_t, DIM>& index)
 	{
 		// compute verlet index
 		const ublas::c_vector<T, DIM>& p0 = _cell->bb_origin();
 		const ublas::c_vector<T, DIM>& L = _cell->bb_size();
 
 		for (std::size_t i = 0; i < DIM; i++) {
-			index[i] = (std::size_t)(1 + (p[i] - p0[i]) / L[i] * (_vdims[i] - 2));
-			index[i] = std::max((std::size_t) 1, std::min(index[i], _vdims[i] - 2));
+			int j = (int) std::floor(1 + (p[i] - p0[i]) / L[i] * (_vdims[i] - 2));
+			if (j < 0 || j >= (int)_vdims[i]) return false;
+			index[i] = (std::size_t) j;
 		}
+
+		return true;
 	}
+
 
 	void verlet_add(std::size_t m_index)
 	{
@@ -1748,10 +2034,37 @@ public:
 		boost::shared_ptr< Molecule<T, DIM> > m = _molecules[m_index];
 		std::array<std::size_t, DIM> index;
 		verlet_index(m->x, index);
+		for (std::size_t i = 0; i < DIM; i++) {
+			index[i] = std::max((std::size_t) 1, std::min(index[i], _vdims[i] - 2));
+		}
 
 		// add molecule to verlet cell
 		boost::shared_ptr<VerletCell<T, DIM> > v_cell = _vmap->get_cell(index);
 		v_cell->add(m_index);
+
+		// add ghost elements
+		const std::vector< ublas::c_vector<T, DIM> >& neighbour_translations = _cell->neighbour_translations();
+		ublas::c_vector<T, DIM> p;
+
+		for (std::size_t j = 0; j < neighbour_translations.size(); j++)
+		{
+			p = m->x + neighbour_translations[j];
+
+			if (verlet_index(p, index))
+			{
+				// add ghost molecule to verlet cell
+				boost::shared_ptr<VerletCell<T, DIM> > v_cell = _vmap->get_cell(index);
+				v_cell->add(m_index + _ghost_offset);
+			
+				// add ghost molecule to list
+				boost::shared_ptr< GhostMolecule<T, DIM> > gm;
+				gm.reset(new GhostMolecule<T, DIM>());
+				gm->t = neighbour_translations[j];
+				gm->molecule_index = m_index;
+				_ghost_molecules.push_back(gm);
+			}
+		}
+
 	}
 };
 

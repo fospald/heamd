@@ -21,12 +21,14 @@
 	</elements>
 	
 	<!-- RVE dimensions -->
-	<dx>1</dx>
-	<dy>1</dy>
-	<dz>1</dz>
+	<cell type="cubic">
+		<a0>1.0</a0>
+		<a1>1.0</a1>
+		<a2>1.0</a2>
+	</cell>
 	
 	<!-- number of atoms -->
-	<n>1000</n>
+	<n>10</n>
 
 	<!-- volume fractions -->
 	<fractions>
@@ -36,10 +38,10 @@
 
 	<!-- max neighbour distance for force calculations, relative value to the RVE size max(dx,dy,dz)
 	     computed automatically if < 0 -->
-	<dmax>-1</dmax>
+	<nn_radius>-1</nn_radius>
 	
 	<!-- number of neighbour atom in each direction to compute dmax, if not provided -->
-	<dlevels>1</dlevels>
+	<nn_levels>1</nn_levels>
 
 	<!-- thermodynamic state variables and simulation time
 	     if values for pressure or temperature are not provided
@@ -48,14 +50,14 @@
 		-->
 	<steps>
 		<step t="0" T="1000" />
-		<step t="1" T="300" />
+		<step t="100" T="300" />
 	</steps>
 	
 	<!-- fixed time step size -->
-	<dt>0.01</dt>
+	<dt>0.1</dt>
 	
 	<!-- data storage interval in multiple of dt -->
-	<store_interval>1</store_interval>
+	<store_interval>10</store_interval>
 	
 	<!-- number of OpenMP threads -->
 	<num_threads>1</num_threads>
