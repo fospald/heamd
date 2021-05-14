@@ -1420,13 +1420,7 @@ public:
 
 
 template <typename T, int DIM>
-class MoleculeBase
-{
-};
-
-
-template <typename T, int DIM>
-class Molecule : public MoleculeBase<T, DIM>
+class Molecule
 {
 public:
 	ublas::c_vector<T, DIM> x;	// position
@@ -1438,24 +1432,10 @@ public:
 
 
 template <typename T, int DIM>
-class GhostMolecule : public MoleculeBase<T, DIM>
+struct GhostMolecule
 {
-public:
 	ublas::c_vector<T, DIM> t;	// translation
 	std::size_t molecule_index;    // base molecule 
-};
-
-
-template <typename T, int DIM>
-class NextNeigbourSearchAlgorithm
-{
-
-};
-
-template <typename T, int DIM>
-class PoissonDisk : public NextNeigbourSearchAlgorithm<T, DIM>
-{
-
 };
 
 
@@ -1512,23 +1492,17 @@ public:
 		}
 
 		// compute neighbour translations
-		std::size_t m = 4 << (2*DIM - 2);
-		for (std::size_t i = 0; i < m; i++)
+		std::size_t m = std::pow(3, DIM);
+		for (std::size_t j = 0; j < m; j++)
 		{
-			bool valid = true;
 			ublas::c_vector<T, DIM> t;
-			
-			for (int d = 0; d < DIM; d++)
-			{
-				int ti = (i & (3 << (2*d))) >> (2*d);
-				if (ti == 3) {
-					valid = false;
-					break;
-				}
-				t[d] = _a[d]*(T)(ti - 1);
+			std::size_t k = j;
+			for (std::size_t d = 0; d < DIM; d++) {
+				std::size_t index = k % 3;
+				k -= index*std::pow(3, d);
+				t[d] = _a[d]*(T)((int)index - 1);
 			}
 
-			if (!valid) continue;
 			if (ublas::inner_prod(t, t) == (T)0) continue;
 			
 			_neighbour_translations.push_back(t);
@@ -1567,20 +1541,26 @@ template <typename T, int DIM>
 class VerletCell
 {
 protected:
-	std::list<std::size_t> _indices;	// list with molecule indices
+	std::vector<std::size_t> _indices;	// list with molecule indices
+	std::vector<std::size_t> _nindices;	// list with neighbour molecule indices
 
 public:
 	VerletCell()
 	{
 	}
 
-	const std::list<std::size_t>& indices() const {
+	const std::vector<std::size_t>& indices() const {
 		return _indices;
+	}
+
+	std::vector<std::size_t>& nindices() {
+		return _nindices;
 	}
 
 	void clear()
 	{
 		_indices.clear();
+		_nindices.clear();
 	}
 
 	void add(std::size_t index)
@@ -1622,6 +1602,21 @@ public:
 		}
 	}
 
+	void print()
+	{
+		int k = 0;
+		auto elements = boost::make_iterator_range(_cells->data(), _cells->data() + _cells->num_elements());
+		for (auto& element : elements) {
+			const std::vector<std::size_t>& indices = element->indices();
+			LOG_COUT << "verlet cell " << k << " ";
+			for (std::size_t i = 0; i < indices.size(); i++) {
+				LOG_COUT << " " << indices[i];
+			}
+			LOG_COUT << std::endl;
+			k++;
+		}
+	}
+
 	boost::shared_ptr<VerletCell<T, DIM> > get_cell(const std::array<std::size_t, DIM>& index)
 	{
 		return (*_cells)(index);
@@ -1660,7 +1655,9 @@ class MDSolver
 protected:
 	std::string _cell_type;
 	std::string _result_filename;
+	std::string _element_db_filename;
 	std::size_t _N;
+	int _seed;
 	std::size_t _store_interval;
 	std::size_t _ghost_offset;
 	boost::shared_ptr< UnitCell<T, DIM> > _cell;
@@ -1668,10 +1665,10 @@ protected:
 	boost::shared_ptr< ElementDatabase<T, DIM> > _element_db;
 	std::array<std::size_t, DIM> _vdims;
 	T _nn_levels;	// relative number of nearst neighbours included in the Verlet map
-	T _nn_radius;
+	T _nn_radius, _nn_radius2;
 
 	std::vector< boost::shared_ptr< Molecule<T, DIM> > > _molecules;
-	std::list< boost::shared_ptr< GhostMolecule<T, DIM> > > _ghost_molecules;
+	std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > > _ghost_molecules;
 	std::list< boost::shared_ptr< SimulationInterval<T, DIM> > > _intervals;
 	std::list< boost::shared_ptr< ElementFraction<T, DIM> > > _fractions;
 
@@ -1680,8 +1677,10 @@ public:
 	{
 		_cell_type = "cubic";
 		_nn_radius = -1.0;
+		_nn_radius2 = 1.0;
 		_nn_levels = 1.0;
 		_result_filename = "results.xml";
+		_element_db_filename = "";
 		_store_interval = 1;
 	}
 
@@ -1689,16 +1688,20 @@ public:
 	void readSettings(const ptree::ptree& pt)
 	{
 		_N = pt_get<std::size_t>(pt, "n", _N);
+		_seed = pt_get(pt, "seed", _seed);
 
 		_result_filename = pt_get<std::string>(pt, "result_filename", _result_filename);
 		_store_interval = pt_get<std::size_t>(pt, "store_interval", _store_interval);
 		_nn_levels = pt_get<T>(pt, "nn_levels", _nn_levels);
 		_nn_radius = pt_get<T>(pt, "nn_radius", _nn_radius);
+		_nn_radius2 = _nn_radius*_nn_radius;
 
 		// load element database
-		std::string element_db_filename = pt_get<std::string>(pt, "element_db", "elements.xml");
+		_element_db_filename = pt_get<std::string>(pt, "element_db", _element_db_filename);
 		_element_db.reset(new ElementDatabase<T, DIM>());
-		_element_db->load(element_db_filename);
+		if (_element_db_filename != "") {
+			_element_db->load(_element_db_filename);
+		}
 		const ptree::ptree& elements = pt.get_child("elements", empty_ptree);
 		_element_db->load_xml(elements);
 
@@ -1782,6 +1785,7 @@ public:
 		
 		if (_nn_radius < 0) {
 			_nn_radius = std::pow(vol_per_element, 1/(T)DIM)*_nn_levels;
+			_nn_radius2 = _nn_radius*_nn_radius;
 		}
 
 		for (std::size_t d = 0; d < DIM; d++) {
@@ -1900,12 +1904,126 @@ public:
 
 	void perform_timestep(T t, T dt, T Tp, T dT, T p, T dp)
 	{
+		Timer __t("perform_timestep", false);
+
+		//LOG_COUT << "t = " << t << ", dt = " << dt << std::endl;
 		//LOG_COUT << "t = " << t << ", dt = " << dt << ", x0 = " << _molecules[0]->x[0] << ", v0 = " << _molecules[0]->v[0] << std::endl;
 		
-		for (std::size_t i = 0; i < _molecules.size(); i++) {
-			_molecules[i]->x += dt*_molecules[i]->v;
-			_molecules[i]->v += dt*_molecules[i]->a;
-			_cell->wrap_vector(_molecules[i]->x);
+		std::size_t n = _vdims[0];
+		for (std::size_t i = 1; i < DIM; i++) {
+			n *= _vdims[i];
+		}
+		
+		//LOG_COUT << "n = " << n << std::endl;
+
+		//#pragma omp parallel for schedule(dynamic)
+		for (std::size_t i = 0; i < n; i++)
+		{
+			//LOG_COUT << "i = " << i << std::endl;
+
+			bool on_boundary = false;
+			std::array<std::size_t, DIM> cell_index;
+			// i = i0 + i1*n0 + i2*n0*n1 + n3*n0*n1*n2 + ...
+			std::size_t k = i;
+			for (std::size_t j = 0; j < DIM; j++) {
+				cell_index[j] = k % _vdims[j];
+				k -= cell_index[j];
+				k /= _vdims[j];
+				on_boundary = on_boundary || (cell_index[j] == 0) || (cell_index[j] == _vdims[j]-1);
+			}
+
+			if (on_boundary) continue;
+
+			// collect all molecule indices
+			boost::shared_ptr<VerletCell<T, DIM> > cell = _vmap->get_cell(cell_index);
+			const std::vector<std::size_t>& molecule_indices = cell->indices();
+			std::vector<std::size_t>& nmolecule_indices = cell->nindices();
+			std::size_t m = std::pow(3, DIM);
+
+			//LOG_COUT << "cell " << cell_index[0] << " " << cell_index[1] << " " << cell_index[2] << " " <<
+			//	"nmol = " << molecule_indices.size();
+
+			// iterate over all neighbour cells and cell itself
+			nmolecule_indices.clear();
+			for (std::size_t j = 0; j < m; j++)
+			{
+				std::size_t k = j;
+				// compute cell index
+				std::array<std::size_t, DIM> ncell_index;
+				for (std::size_t l = 0; l < DIM; l++) {
+					ncell_index[l] = k % 3;
+					k -= ncell_index[l]*std::pow(3, l);
+					ncell_index[l] += cell_index[l] - 1;
+				}
+
+				// append molecules
+				boost::shared_ptr<VerletCell<T, DIM> > ncell = _vmap->get_cell(ncell_index);
+				const std::vector<std::size_t>& indices = ncell->indices();
+				nmolecule_indices.insert(nmolecule_indices.end(), indices.begin(), indices.end());
+			}
+
+			// loop over molecules in current cell
+			std::size_t nn = nmolecule_indices.size();
+			std::vector< ublas::c_vector<T, DIM> > dir(nn);
+			std::vector<T> dist2(nn);
+			std::vector<std::size_t> nn_indices;	// indices within _nn_radius
+			nn_indices.reserve(nn);
+
+			auto mi = molecule_indices.begin();
+			while (mi != molecule_indices.end())
+			{
+				//LOG_COUT << "m = " << (*mi) << std::endl;
+
+				boost::shared_ptr< Molecule<T, DIM> > molecule = _molecules[*mi];
+
+				nn_indices.clear();
+
+				// loop over all neighbour molecules
+				for (std::size_t j = 0; j < nn; j++)
+				{
+					// exclude molecule itself
+					if (nmolecule_indices[j] == *mi) continue;
+
+					if (nmolecule_indices[j] >= _ghost_offset) {
+						boost::shared_ptr< GhostMolecule<T, DIM> > nmolecule = _ghost_molecules[(std::size_t)(nmolecule_indices[j] - _ghost_offset)];
+						dir[j] = _molecules[nmolecule->molecule_index]->x + nmolecule->t - molecule->x;
+					}
+					else {
+						boost::shared_ptr< Molecule<T, DIM> > nmolecule = _molecules[nmolecule_indices[j]];
+						dir[j] = nmolecule->x - molecule->x;
+					}
+
+					dist2[j] = ublas::inner_prod(dir[j], dir[j]);
+
+					if (dist2[j] < _nn_radius2) {
+						nn_indices.push_back(j);
+					}
+				}
+
+				
+				// compute potential energy and gradient for metallic system
+				// Solhjoo_Simchi_Aashuri__Molecular_dynamics_simulation_of_melting,_solidification_and_remelting_process_of_aluminium.pdf
+				
+				// 3.2.3. The Ra2i-Tabar and Sutton (RTS) many-body potentials for the metallic FCC random alloys
+
+				// 3.2.1. The Sutton–Chen many-body potentials for the elemental FCC metals
+
+				T U; // potential energy
+				ublas::c_vector<T, DIM> F; // force (grad U)
+				static const T param_epsilon = 33.147; // meV
+				static const T param_m = 6;
+				static const T param_c = 16.399;
+				static const T param_a = 4.05;	// Angstrom
+
+			
+
+				// perform actual update
+				molecule->x += dt*molecules->v;
+				molecule->v += dt*molecules->a;
+				_cell->wrap_vector(molecules->x);
+
+				++mi;
+			}
 		}
 
 		verlet_update();
@@ -1913,6 +2031,8 @@ public:
 
 	void write_timestep(std::size_t index, T t, T Tp, T p, std::ofstream & f)
 	{
+		Timer __t("write_timestep", false);
+
 		f << (boost::format("\t\t<timestep t='%g' T='%g' p='%g'>\n") % t % Tp % p).str();
 
 		f << "\t\t\t<molecules>\n";
@@ -1946,12 +2066,17 @@ public:
 	
 	void init_molecules()
 	{
+		Timer __t("init_molecules");
+
+		_molecules.clear();
+
 		RandomUniform01<T>& rnd = RandomUniform01<T>::instance();
 		const ublas::c_vector<T, DIM>& p0 = _cell->bb_origin();
 		const ublas::c_vector<T, DIM>& L = _cell->bb_size();
 
+		rnd.seed(_seed);
+
 		// create N molecules based on the provided fractions
-		std::list< boost::shared_ptr< Molecule<T, DIM> > > molecules;
 		auto fr = _fractions.begin();
 
 		while (fr != _fractions.end())
@@ -1976,23 +2101,14 @@ public:
 				m->x0 = m->x;
 
 				// add molecule
-				molecules.push_back(m);
+				_molecules.push_back(m);
 			}
 
 			++fr;
 		}
 
-		// copy to vector
-		_molecules.resize(molecules.size());
-
-		auto it = molecules.begin();
-		for (std::size_t i = 0; i < molecules.size(); i++) {
-			_molecules[i] = *it;
-			++it;
-		}
-
 		// set offset for ghost cells
-		_ghost_offset = molecules.size();
+		_ghost_offset = _molecules.size();
 
 		// init verlet map
 		verlet_update();
@@ -2000,6 +2116,8 @@ public:
 
 	void verlet_update()
 	{
+		Timer __t("verlet_update", false);
+
 		_vmap->clear();
 		_ghost_molecules.clear();
 
@@ -2007,6 +2125,8 @@ public:
 		{
 			verlet_add(i);
 		}
+
+		//_vmap->print();
 	}
 
 	// compute verlet map index from position
@@ -2052,16 +2172,17 @@ public:
 
 			if (verlet_index(p, index))
 			{
-				// add ghost molecule to verlet cell
-				boost::shared_ptr<VerletCell<T, DIM> > v_cell = _vmap->get_cell(index);
-				v_cell->add(m_index + _ghost_offset);
-			
 				// add ghost molecule to list
+				std::size_t gm_index = _ghost_molecules.size();
 				boost::shared_ptr< GhostMolecule<T, DIM> > gm;
 				gm.reset(new GhostMolecule<T, DIM>());
 				gm->t = neighbour_translations[j];
 				gm->molecule_index = m_index;
 				_ghost_molecules.push_back(gm);
+
+				// add ghost molecule to verlet cell
+				boost::shared_ptr<VerletCell<T, DIM> > v_cell = _vmap->get_cell(index);
+				v_cell->add(gm_index + _ghost_offset);
 			}
 		}
 
@@ -2165,12 +2286,12 @@ template<typename T, typename P, int DIM>
 class LSSolver
 {
 public:
-	typedef boost::function<bool()> LoadstepCallback;
+	typedef boost::function<bool()> TimestepCallback;
 
 protected:
 
 	// callbacks
-	LoadstepCallback _loadstep_callback;
+	TimestepCallback _timestep_callback;
 
 };
 */
@@ -2181,7 +2302,7 @@ protected:
 class HMI
 {
 public:
-	typedef boost::function<bool()> LoadstepCallback;
+	typedef boost::function<bool()> TimestepCallback;
 
 	//! see https://stackoverflow.com/questions/827196/virtual-default-destructors-in-c/827205
 	virtual ~HMI() {}
@@ -2198,8 +2319,8 @@ public:
 	//! init solver
 	virtual void init() = 0;
 
-	//! set a loadstep callback routine (run each loadstep)
-	virtual void set_loadstep_callback(LoadstepCallback cb) = 0;
+	//! set a timestep callback routine (run each timestep)
+	virtual void set_timestep_callback(TimestepCallback cb) = 0;
 
 	//! set Python heamd instance, which can be used (in Python scripts) within a project file as "hm"
 	virtual void set_pyhm_instance(PyObject* instance) = 0;
@@ -2221,7 +2342,7 @@ class HM : public HMI
 protected:
 	boost::shared_ptr< ptree::ptree > xml_root;
 	boost::shared_ptr< MDSolver<T, DIM> > solver;
-	LoadstepCallback loadstep_callback;
+	TimestepCallback timestep_callback;
 	PyObject* pyhm_instance;
 
 public:
@@ -2313,18 +2434,18 @@ public:
 		solver.reset(new MDSolver<T, DIM>());
 	}
 
-	bool loadstep_callback_wrap()
+	bool timestep_callback_wrap()
 	{
-		if (!loadstep_callback) {
+		if (!timestep_callback) {
 			return false;
 		}
 
-		return loadstep_callback();
+		return timestep_callback();
 	}
 
-	void set_loadstep_callback(LoadstepCallback cb)
+	void set_timestep_callback(TimestepCallback cb)
 	{
-		loadstep_callback = cb;
+		timestep_callback = cb;
 	}
 
 	void init() 
@@ -2790,7 +2911,7 @@ public:
 class PyHM : public HMProject
 {
 protected:
-	py::object _py_loadstep_callback;
+	py::object _py_timestep_callback;
 
 public:
 
@@ -2803,10 +2924,10 @@ public:
 		PY::release();
 	}
 
-	bool loadstep_callback()
+	bool timestep_callback()
 	{
-		if (_py_loadstep_callback) {
-			py::object ret = _py_loadstep_callback();
+		if (_py_timestep_callback) {
+			py::object ret = _py_timestep_callback();
 			py::extract<bool> bool_ret(ret);
 			if (bool_ret.check()) {
 				return bool_ret();
@@ -2816,10 +2937,10 @@ public:
 		return false;
 	}
 
-	void set_loadstep_callback(py::object cb)
+	void set_timestep_callback(py::object cb)
 	{
-		_py_loadstep_callback = cb;
-		hm()->set_loadstep_callback(boost::bind(&PyHM::loadstep_callback, this));
+		_py_timestep_callback = cb;
+		hm()->set_timestep_callback(boost::bind(&PyHM::timestep_callback, this));
 	}
 };
 
@@ -3134,7 +3255,7 @@ public:
 			.def("set", py::raw_function(&SetParameters, 1), "Set a property in the XML tree using a path and multiple arguments or keyword arguments, i.e. set('path', x=1, y=2, z=0) is equivalent to set('path.x', 1), set('path.y', 2), set('path.z', 0)")
 			.def("get", &PyHM::get, "Get XML attribute or value of an element. Use get('element-path..attribute') to get an attribute value. If the emelent does not exists returns an empty string", py::args("self", "path"))
 			.def("erase", &PyHM::erase, "Remove a path from the XML tree", py::args("self", "path"))
-			.def("set_loadstep_callback", &PyHM::set_loadstep_callback, "Set a callback function to be called each loadstep of the solver. If the callback returns True, the solver is canceled.", py::args("self", "func"))
+			.def("set_timestep_callback", &PyHM::set_timestep_callback, "Set a callback function to be called each timestep of the solver. If the callback returns True, the solver is canceled.", py::args("self", "func"))
 			.def("set_variable", &PyHM::set_variable, "Set a Python variable, which can be later used in XML attributes as Python expressions", py::args("self", "name", "value"))
 			.def("get_variable", &PyHM::get_variable, "Get a Python variable", py::args("self", "name"))
 			.def("set_log_file", &PyHM::set_log_file, "Set filename for capturing the console output", py::args("self", "filename"))

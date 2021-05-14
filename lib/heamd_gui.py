@@ -205,7 +205,7 @@ class WriteVTKWidget(QtWidgets.QDialog):
 
 		app = QtWidgets.QApplication.instance()
 		binary = True
-		loadstep = 0
+		timestep = 0
 		dtype = "float"
 		
 		with open(self.filename, "wb+") as f:
@@ -443,87 +443,196 @@ h3 {
 
 
 
-class GLBoxItem(gl.GLGraphicsItem.GLGraphicsItem):
-    """
-    **Bases:** :class:`GLGraphicsItem <pyqtgraph.opengl.GLGraphicsItem>`
-    
-    Displays a wire-frame box.
-    """
-    def __init__(self, size=None, color=None, glOptions='translucent'):
-        gl.GLGraphicsItem.GLGraphicsItem.__init__(self)
-        if size is None:
-            size = QtGui.QVector3D(1,1,1)
-        self.setSize(size=size)
-        if color is None:
-            color = (255,255,255,255)
-        self.setColor(color)
-        self.setGLOptions(glOptions)
-    
-    def setSize(self, x=None, y=None, z=None, size=None):
-        """
-        Set the size of the box (in its local coordinate system; this does not affect the transform)
-        Arguments can be x,y,z or size=QVector3D().
-        """
-        if size is not None:
-            x = size.x()
-            y = size.y()
-            z = size.z()
-        self.__size = [x,y,z]
-        self.update()
-        
-    def size(self):
-        return self.__size[:]
-    
-    def setColor(self, *args):
-        """Set the color of the box. Arguments are the same as those accepted by functions.mkColor()"""
-        self.__color = pg.Color(*args)
-        
-    def color(self):
-        return self.__color
-    
-    def paint(self):
-        #glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
-        #glEnable( GL_BLEND )
-        #glEnable( GL_ALPHA_TEST )
-        ##glAlphaFunc( GL_ALWAYS,0.5 )
-        #glEnable( GL_POINT_SMOOTH )
-        #glDisable( GL_DEPTH_TEST )
-        self.setupGLState()
-        
-        glBegin( GL_LINES )
-        
-        glColor4f(*self.color().glColor())
-        x,y,z = self.size()
-        glVertex3f(0, 0, 0)
-        glVertex3f(0, 0, z)
-        glVertex3f(x, 0, 0)
-        glVertex3f(x, 0, z)
-        glVertex3f(0, y, 0)
-        glVertex3f(0, y, z)
-        glVertex3f(x, y, 0)
-        glVertex3f(x, y, z)
+class MyGLScatterPlotItem(gl.GLScatterPlotItem):
+	"""Draws points at a list of 3D positions."""
+	
+	def __init__(self, **kwds):
+		gl.GLScatterPlotItem.__init__(self, **kwds)
+	
+	def initializeGL(self):
+		if self.shader is not None:
+			return
+		
+		## Generate texture for rendering points
+		w = 32
+		def fn(x,y):
+			r = (((x-(w-1)/2.)**2 + (y-(w-1)/2.)**2) ** 0.5) / (w/2)
+			return 255 * (1.0 - np.clip(r**2, 0.0, 1.0))
+		pData = np.empty((w, w, 4))
+		pData[:] = 255
+		pData[:,:,3] = np.fromfunction(fn, pData.shape[:2])
+		#print pData.shape, pData.min(), pData.max()
+		pData = pData.astype(np.ubyte)
+		
+		if getattr(self, "pointTexture", None) is None:
+			self.pointTexture = glGenTextures(1)
+		glActiveTexture(GL_TEXTURE0)
+		glEnable(GL_TEXTURE_2D)
+		glBindTexture(GL_TEXTURE_2D, self.pointTexture)
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, pData.shape[0], pData.shape[1], 0, GL_RGBA, GL_UNSIGNED_BYTE, pData)
+		
+		self.shader = gl.shaders.getShaderProgram('pointSprite')
 
-        glVertex3f(0, 0, 0)
-        glVertex3f(0, y, 0)
-        glVertex3f(x, 0, 0)
-        glVertex3f(x, y, 0)
-        glVertex3f(0, 0, z)
-        glVertex3f(0, y, z)
-        glVertex3f(x, 0, z)
-        glVertex3f(x, y, z)
-        
-        glVertex3f(0, 0, 0)
-        glVertex3f(x, 0, 0)
-        glVertex3f(0, y, 0)
-        glVertex3f(x, y, 0)
-        glVertex3f(0, 0, z)
-        glVertex3f(x, 0, z)
-        glVertex3f(0, y, z)
-        glVertex3f(x, y, z)
-        
-        glEnd()
-        
-        
+
+class GLBoxItem(gl.GLGraphicsItem.GLGraphicsItem):
+	"""
+	**Bases:** :class:`GLGraphicsItem <pyqtgraph.opengl.GLGraphicsItem>`
+	
+	Displays a wire-frame box.
+	"""
+	def __init__(self, size=None, color=None, glOptions='translucent'):
+		gl.GLGraphicsItem.GLGraphicsItem.__init__(self)
+		if size is None:
+			size = QtGui.QVector3D(1,1,1)
+		self.setSize(size=size)
+		if color is None:
+			color = (255,255,255,255)
+		self.setColor(color)
+		self.setGLOptions(glOptions)
+	
+	def setSize(self, x=None, y=None, z=None, size=None):
+		"""
+		Set the size of the box (in its local coordinate system; this does not affect the transform)
+		Arguments can be x,y,z or size=QVector3D().
+		"""
+		if size is not None:
+			x = size.x()
+			y = size.y()
+			z = size.z()
+		self.__size = [x,y,z]
+		self.update()
+		
+	def size(self):
+		return self.__size[:]
+	
+	def setColor(self, *args):
+		"""Set the color of the box. Arguments are the same as those accepted by functions.mkColor()"""
+		self.__color = pg.Color(*args)
+		
+	def color(self):
+		return self.__color
+	
+	def paint(self):
+		#glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+		#glEnable( GL_BLEND )
+		#glEnable( GL_ALPHA_TEST )
+		##glAlphaFunc( GL_ALWAYS,0.5 )
+		#glEnable( GL_POINT_SMOOTH )
+		#glDisable( GL_DEPTH_TEST )
+		self.setupGLState()
+		
+		glBegin( GL_LINES )
+		
+		glColor4f(*self.color().glColor())
+		x,y,z = self.size()
+		glVertex3f(0, 0, 0)
+		glVertex3f(0, 0, z)
+		glVertex3f(x, 0, 0)
+		glVertex3f(x, 0, z)
+		glVertex3f(0, y, 0)
+		glVertex3f(0, y, z)
+		glVertex3f(x, y, 0)
+		glVertex3f(x, y, z)
+
+		glVertex3f(0, 0, 0)
+		glVertex3f(0, y, 0)
+		glVertex3f(x, 0, 0)
+		glVertex3f(x, y, 0)
+		glVertex3f(0, 0, z)
+		glVertex3f(0, y, z)
+		glVertex3f(x, 0, z)
+		glVertex3f(x, y, z)
+		
+		glVertex3f(0, 0, 0)
+		glVertex3f(x, 0, 0)
+		glVertex3f(0, y, 0)
+		glVertex3f(x, y, 0)
+		glVertex3f(0, 0, z)
+		glVertex3f(x, 0, z)
+		glVertex3f(0, y, z)
+		glVertex3f(x, y, z)
+		
+		glEnd()
+		
+
+class GLMultiMeshItem(gl.GLMeshItem):
+	"""
+	**Bases:** :class:`GLMeshItem <pyqtgraph.opengl.GLMeshItem>`
+	
+	Displays a 3D triangle mesh at multiple positions with variable color and scaling. 
+	"""
+
+	def __init__(self, **kwds):
+		
+		gl.GLMeshItem.__init__(self, **kwds)
+		self.setData(**kwds)
+
+	def setData(self, **kwds):
+		"""
+		Update the data displayed by this item. All arguments are optional; 
+		for example it is allowed to update spot positions while leaving 
+		colors unchanged, etc.
+		
+		====================  ==================================================
+		**Arguments:**
+		mpos				   (N,3) array of floats specifying point locations.
+		mcolor				 (N,4) array of floats (0.0-1.0) specifying
+							  spot colors OR a tuple of floats specifying
+							  a single color for all spots.
+		msize				  (N,) array of floats specifying spot sizes or 
+							  a single value to apply to all spots.
+		====================  ==================================================
+		"""
+		args = ['mpos', 'mcolor', 'msize']
+		for arg in args:
+			if arg in kwds:
+				setattr(self, arg, kwds[arg])
+		
+		self.meshDataChanged()
+	
+	def parseMeshData(self):
+		
+		if self.vertexes is not None and self.normals is not None:
+			return
+		
+		gl.GLMeshItem.parseMeshData(self)
+		self.multiplyMeshData()
+		return
+
+	def multiplyMeshData(self):
+	
+		m = self.mpos.shape[0]
+
+		v = self.vertexes
+		nv = v.shape[0]
+		f = self.faces
+		if not f is None:
+			nf = f.shape[0]
+		n = self.normals
+		nn = n.shape[0]
+
+		self.vertexes = np.zeros(tuple([m*nv] + list(v.shape[1:])), dtype=v.dtype)
+		if not f is None:
+			self.faces = np.zeros((m*nf, 3), dtype=f.dtype)
+		self.normals = np.zeros(tuple([m*nn] + list(n.shape[1:])), dtype=n.dtype)
+		self.colors = np.zeros(tuple([m*nv] + list(v.shape[2:]) + [4]), dtype=v.dtype)
+
+		for i in range(m):
+			self.vertexes[(i*nv):(i*nv + nv)] = v*self.msize[i] + self.mpos[i,:]
+			if not f is None:
+				self.faces[(i*nf):(i*nf + nf)] = f + i*nv
+			self.normals[(i*nn):(i*nn + nn)] = n
+			self.colors[(i*nv):(i*nv + nv)] = self.mcolor[i]
+		
+		"""
+		print(self.vertexes)
+		print(self.faces)
+		print(self.normals)
+		print(self.colors)
+		print(self.edges)
+		print(self.edgeColors)
+		"""
+
 
 def ET_get_vector(el, name):
 	return [float(el.get(name + str(i))) for i in range(3)]
@@ -628,25 +737,25 @@ class PlotWidget(QtWidgets.QWidget):
 		vbox.addLayout(flow)
 
 
-		self.loadstepSlider = QtWidgets.QSlider()
-		self.loadstepSlider.setOrientation(QtCore.Qt.Horizontal)
-		self.loadstepSlider.setMinimum(0)
-		self.loadstepSlider.setMaximum(len(self.timesteps)-1)
-		self.loadstepSlider.setTickPosition(QtWidgets.QSlider.TicksBothSides)
-		self.loadstepSlider.setTickInterval(1)
-		#self.loadstepSlider.sliderMoved.connect(self.loadstepSliderChanged)
+		self.timestepSlider = QtWidgets.QSlider()
+		self.timestepSlider.setOrientation(QtCore.Qt.Horizontal)
+		self.timestepSlider.setMinimum(0)
+		self.timestepSlider.setMaximum(len(self.timesteps)-1)
+		self.timestepSlider.setTickPosition(QtWidgets.QSlider.TicksBothSides)
+		self.timestepSlider.setTickInterval(1)
+		#self.timestepSlider.sliderMoved.connect(self.timestepSliderChanged)
 		if (other != None):
-			self.loadstepSlider.setValue(int(other.loadstepSlider.value()*(self.loadstepSlider.maximum()+1)/(other.loadstepSlider.maximum()+1)))
+			self.timestepSlider.setValue(int(other.timestepSlider.value()*(self.timestepSlider.maximum()+1)/(other.timestepSlider.maximum()+1)))
 		else:
-			self.loadstepSlider.setValue(self.loadstepSlider.maximum())
-		self.loadstepSlider.valueChanged.connect(self.loadstepSliderChanged)
-		self.loadstepLabel = QtWidgets.QLabel()
-		self.loadstepLabel.setText("%04d" % self.loadstepSlider.value())
+			self.timestepSlider.setValue(self.timestepSlider.maximum())
+		self.timestepSlider.valueChanged.connect(self.timestepSliderChanged)
+		self.timestepLabel = QtWidgets.QLabel()
+		self.timestepLabel.setText("%04d" % self.timestepSlider.value())
 
 		hbox = QtWidgets.QHBoxLayout()
-		hbox.addWidget(QtWidgets.QLabel("Loadstep:"))
-		hbox.addWidget(self.loadstepSlider)
-		hbox.addWidget(self.loadstepLabel)
+		hbox.addWidget(QtWidgets.QLabel("Timestep:"))
+		hbox.addWidget(self.timestepSlider)
+		hbox.addWidget(self.timestepLabel)
 		vbox.addLayout(hbox)
 
 
@@ -665,37 +774,11 @@ class PlotWidget(QtWidgets.QWidget):
 
 
 
-
-		
+		# init rve rendering
 
 		self.rve_view = gl.GLViewWidget()
 		self.rve_view.show()
 		self.rve_view.setCameraPosition(pos=QtGui.QVector3D(*self.cell_center), distance=2*max(self.cell_size), azimuth=-90)
-
-		"""
-		g = gl.GLGridItem()
-		g.scale(2,2,1)
-		w.addItem(g)
-		"""
-
-
-		"""
-		xx = 0
-		yx = 0
-		zx = 0
-
-		xy = 1
-		yy = 0
-		zy = 0
-
-		Xdot = (xx, yx, zx)
-		Ydot = (xy, yy, zy)
-
-		pts = np.array([Xdot, Ydot])
-		sh1 = gl.GLLinePlotItem(pos=pts, width=1, antialias=False)
-		w.addItem(sh1)
-		"""
-
 
 		q = GLBoxItem()
 		q.scale(*self.cell_size)
@@ -703,49 +786,18 @@ class PlotWidget(QtWidgets.QWidget):
 		self.rve_view.addItem(q)
 
 
-		"""
-		md = gl.MeshData.sphere(rows=5, cols=5)
-		x = np.linspace(-8, 8, 6)
-
-		m1 = gl.GLMeshItem(meshdata=md, smooth=True, color=(1, 0, 0, 0.2), shader='balloon', glOptions='additive')
-		m1.translate(x[0], 0, 0)
-		w.addItem(m1)
-
-		m2 = gl.GLMeshItem(meshdata=md, smooth=True, shader='normalColor', glOptions='opaque')
-		m2.translate(x[1], 0, 0)
-		w.addItem(m2)
-
-		m3 = gl.GLMeshItem(meshdata=md, smooth=True, shader='viewNormalColor', glOptions='opaque')
-		m3.translate(x[2], 0, 0)
-		w.addItem(m3)
-		"""
-
-
 		self.position_data = np.zeros((1,3))
 		self.color_data = np.zeros((1,4))
 		self.size_data = np.zeros((1,))
+		self.use_sprite = False
 
-		self.rve_scatter_plot = gl.GLScatterPlotItem(pos=self.position_data, color=self.color_data, size=self.size_data, pxMode=False)
+		if self.use_sprite:
+			self.rve_scatter_plot = MyGLScatterPlotItem(pos=self.position_data, color=self.color_data, size=self.size_data, pxMode=False)
+		else:
+			md = gl.MeshData.sphere(rows=10, cols=10)
+			self.rve_scatter_plot = GLMultiMeshItem(mpos=self.position_data, mcolor=self.color_data, msize=self.size_data, meshdata=md, smooth=True, color=(1, 0, 0, 0.2), shader='shaded', glOptions='opaque')
+				
 		self.rve_view.addItem(self.rve_scatter_plot)
-
-
-		for i in range(0):
-			x = np.random.rand(3) - 0.5
-			m4 = gl.GLMeshItem(meshdata=md, smooth=True, color=(0, 0, 1, 1), shader='shaded', glOptions='opaque')
-			s = 0.025
-			m4.scale(s, s, s)
-			m4.translate(*x)
-			self.rve_view.addItem(m4)
-
-		"""
-		m5 = gl.GLMeshItem(meshdata=md, smooth=True, color=(1, 0, 0, 1), shader='edgeHilight', glOptions='opaque')
-		m5.translate(x[4], 0, 0)
-		w.addItem(m5)
-
-		m6 = gl.GLMeshItem(meshdata=md, smooth=True, color=(1, 0, 0, 1), shader='heightColor', glOptions='opaque')
-		m6.translate(x[5], 0, 0)
-		w.addItem(m6)
-		"""
 
 
 
@@ -808,9 +860,9 @@ class PlotWidget(QtWidgets.QWidget):
 			mode = ET.SubElement(view, 'mode')
 			mode.text = vmode
 
-		if self.loadstepSlider.minimum() < self.loadstepSlider.maximum():
-			loadstep = ET.SubElement(view, 'loadstep')
-			loadstep.text = str((self.loadstepSlider.value()+0.5)/(self.loadstepSlider.maximum()+1))
+		if self.timestepSlider.minimum() < self.timestepSlider.maximum():
+			timestep = ET.SubElement(view, 'timestep')
+			timestep.text = str((self.timestepSlider.value()+0.5)/(self.timestepSlider.maximum()+1))
 
 		# indent XML
 		indent = "\t"
@@ -855,9 +907,9 @@ class PlotWidget(QtWidgets.QWidget):
 			elif mode.text == 'results':
 				self.viewResultDataButton.setChecked(True)
 		
-		loadstep = view.find('loadstep')
-		if not loadstep is None:
-			self.loadstepSlider.setValue(int(float(loadstep.text)*(self.loadstepSlider.maximum()+1)))
+		timestep = view.find('timestep')
+		if not timestep is None:
+			self.timestepSlider.setValue(int(float(timestep.text)*(self.timestepSlider.maximum()+1)))
 
 	def writeVTK(self):
 		
@@ -909,16 +961,16 @@ class PlotWidget(QtWidgets.QWidget):
 		self.viewXMLButton.setChecked(not v)
 		self.updateFigCanvasVisible()
 
-	def loadstepSliderChanged(self):
+	def timestepSliderChanged(self):
 		self.updateTimestep()
-		self.loadstepLabel.setText("%04d" % self.loadstepSlider.value())
+		self.timestepLabel.setText("%04d" % self.timestepSlider.value())
 
 	def updateTimestep(self):
 
 		show_ghost = True
 		show_ghost = False
 
-		ts = self.timesteps[self.loadstepSlider.value()]
+		ts = self.timesteps[self.timestepSlider.value()]
 		molecules = ts.find("molecules")
 		ghost_molecules = {}
 
@@ -946,7 +998,11 @@ class PlotWidget(QtWidgets.QWidget):
 			self.color_data[i + offset,:] = self.color_data[mi,:]
 			self.size_data[i + offset] = self.size_data[mi]
 
-		self.rve_scatter_plot.setData(pos=self.position_data, color=self.color_data, size=self.size_data)
+		if self.use_sprite:
+			self.rve_scatter_plot.setData(pos=self.position_data, color=self.color_data, size=self.size_data)
+		else:
+			self.rve_scatter_plot.setData(mpos=self.position_data, mcolor=self.color_data, msize=self.size_data)
+
 		self.rve_view.update()
 
 
@@ -2418,13 +2474,13 @@ class MainWindow(QtWidgets.QMainWindow):
 			for i in range(5):
 				QtWidgets.QApplication.processEvents()
 
-		def loadstep_callback():
+		def timestep_callback():
 			process_events()
 			return progress.wasCanceled()
 
 
 		try:
-			hm.set_loadstep_callback(loadstep_callback)
+			hm.set_timestep_callback(timestep_callback)
 			#print hm.get_xml()
 
 			progress.show()

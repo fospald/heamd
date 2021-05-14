@@ -17,7 +17,8 @@
 	<!-- modify/add elements -->
 	<elements>
 		<element id="Al" color="#ff0000" />
-		<element id="Cr" color="#0000ff" />
+		<element id="Cr" color="#00ff00" />
+		<element id="Co" color="#0000ff" />
 	</elements>
 	
 	<!-- RVE dimensions -->
@@ -27,13 +28,17 @@
 		<a2>1.0</a2>
 	</cell>
 	
+	<!-- random seed -->
+	<seed>0</seed>
+
 	<!-- number of atoms -->
-	<n>10</n>
+	<n>100</n>
 
 	<!-- volume fractions -->
 	<fractions>
-		<fraction element="Al" value="0.5" />
-		<fraction element="Cr" value="0.5" />
+		<fraction element="Al" value="0.2" />
+		<fraction element="Cr" value="0.3" />
+		<fraction element="Co" value="0.5" />
 	</fractions>
 
 	<!-- max neighbour distance for force calculations, relative value to the RVE size max(dx,dy,dz)
@@ -50,21 +55,22 @@
 		-->
 	<steps>
 		<step t="0" T="1000" />
-		<step t="100" T="300" />
+		<step t="1" T="300" />
 	</steps>
 	
 	<!-- fixed time step size -->
 	<dt>0.1</dt>
 	
 	<!-- data storage interval in multiple of dt -->
-	<store_interval>10</store_interval>
+	<store_interval>1</store_interval>
 	
 	<!-- number of OpenMP threads -->
 	<num_threads>1</num_threads>
 
-	<!-- other actions to perform -->
+	<!-- actions to perform -->
 	<actions>
 		<run />
+		<print_timings />
 	</actions>
 
 </settings>
