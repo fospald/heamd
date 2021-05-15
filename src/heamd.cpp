@@ -1424,9 +1424,10 @@ class Molecule
 {
 public:
 	ublas::c_vector<T, DIM> x;	// position
-	ublas::c_vector<T, DIM> x0;	// previous position
 	ublas::c_vector<T, DIM> a;	// acceleration
+	ublas::c_vector<T, DIM> a0;	// previous acceleration
 	ublas::c_vector<T, DIM> v;	// velocity
+	T U;				// potential energy
 	boost::shared_ptr<Element<T, DIM> > element;	// base element
 };
 
@@ -1499,7 +1500,8 @@ public:
 			std::size_t k = j;
 			for (std::size_t d = 0; d < DIM; d++) {
 				std::size_t index = k % 3;
-				k -= index*std::pow(3, d);
+				k -= index;
+				k /= 3;
 				t[d] = _a[d]*(T)((int)index - 1);
 			}
 
@@ -1507,7 +1509,7 @@ public:
 			
 			_neighbour_translations.push_back(t);
 
-			LOG_COUT << "neighbour translation " << t[0] << " " << t[1] << " " << t[2] << std::endl;
+			//LOG_COUT << "neighbour translation " << t[0] << " " << t[1] << " " << t[2] << std::endl;
 		}
 	}
 
@@ -1653,6 +1655,7 @@ template <typename T, int DIM>
 class MDSolver
 {
 protected:
+	bool _periodic_bc;
 	std::string _cell_type;
 	std::string _result_filename;
 	std::string _element_db_filename;
@@ -1666,6 +1669,7 @@ protected:
 	std::array<std::size_t, DIM> _vdims;
 	T _nn_levels;	// relative number of nearst neighbours included in the Verlet map
 	T _nn_radius, _nn_radius2;
+	T _step_limit;
 
 	std::vector< boost::shared_ptr< Molecule<T, DIM> > > _molecules;
 	std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > > _ghost_molecules;
@@ -1682,22 +1686,26 @@ public:
 		_result_filename = "results.xml";
 		_element_db_filename = "";
 		_store_interval = 1;
+		_periodic_bc = true;
+		_step_limit = 0.01;
 	}
 
 	//! read settings from ptree
 	void readSettings(const ptree::ptree& pt)
 	{
-		_N = pt_get<std::size_t>(pt, "n", _N);
+		_N = pt_get(pt, "n", _N);
 		_seed = pt_get(pt, "seed", _seed);
 
-		_result_filename = pt_get<std::string>(pt, "result_filename", _result_filename);
-		_store_interval = pt_get<std::size_t>(pt, "store_interval", _store_interval);
-		_nn_levels = pt_get<T>(pt, "nn_levels", _nn_levels);
-		_nn_radius = pt_get<T>(pt, "nn_radius", _nn_radius);
+		_step_limit = pt_get(pt, "step_limit", _step_limit);
+		_periodic_bc = pt_get(pt, "periodic_bc", _periodic_bc);
+		_result_filename = pt_get(pt, "result_filename", _result_filename);
+		_store_interval = pt_get(pt, "store_interval", _store_interval);
+		_nn_levels = pt_get(pt, "nn_levels", _nn_levels);
+		_nn_radius = pt_get(pt, "nn_radius", _nn_radius);
 		_nn_radius2 = _nn_radius*_nn_radius;
 
 		// load element database
-		_element_db_filename = pt_get<std::string>(pt, "element_db", _element_db_filename);
+		_element_db_filename = pt_get(pt, "element_db", _element_db_filename);
 		_element_db.reset(new ElementDatabase<T, DIM>());
 		if (_element_db_filename != "") {
 			_element_db->load(_element_db_filename);
@@ -1797,6 +1805,11 @@ public:
 		LOG_COUT << "Nearst neighbour radius = " << _nn_radius << std::endl;
 
 		init_molecules();
+	}
+
+	void move_molecule(std::size_t id, const ublas::c_vector<T, DIM>& p)
+	{
+		_molecules[id]->x = p;
 	}
 
 	void run()
@@ -1902,19 +1915,14 @@ public:
 		f.close();
 	}
 
-	void perform_timestep(T t, T dt, T Tp, T dT, T p, T dp)
+	void compute_forces()
 	{
-		Timer __t("perform_timestep", false);
+		Timer __t("compute_forces", false);
 
-		//LOG_COUT << "t = " << t << ", dt = " << dt << std::endl;
-		//LOG_COUT << "t = " << t << ", dt = " << dt << ", x0 = " << _molecules[0]->x[0] << ", v0 = " << _molecules[0]->v[0] << std::endl;
-		
 		std::size_t n = _vdims[0];
 		for (std::size_t i = 1; i < DIM; i++) {
 			n *= _vdims[i];
 		}
-		
-		//LOG_COUT << "n = " << n << std::endl;
 
 		//#pragma omp parallel for schedule(dynamic)
 		for (std::size_t i = 0; i < n; i++)
@@ -1940,9 +1948,6 @@ public:
 			std::vector<std::size_t>& nmolecule_indices = cell->nindices();
 			std::size_t m = std::pow(3, DIM);
 
-			//LOG_COUT << "cell " << cell_index[0] << " " << cell_index[1] << " " << cell_index[2] << " " <<
-			//	"nmol = " << molecule_indices.size();
-
 			// iterate over all neighbour cells and cell itself
 			nmolecule_indices.clear();
 			for (std::size_t j = 0; j < m; j++)
@@ -1952,7 +1957,8 @@ public:
 				std::array<std::size_t, DIM> ncell_index;
 				for (std::size_t l = 0; l < DIM; l++) {
 					ncell_index[l] = k % 3;
-					k -= ncell_index[l]*std::pow(3, l);
+					k -= ncell_index[l];
+					k /= 3;
 					ncell_index[l] += cell_index[l] - 1;
 				}
 
@@ -1963,23 +1969,21 @@ public:
 			}
 
 			// loop over molecules in current cell
-			std::size_t nn = nmolecule_indices.size();
-			std::vector< ublas::c_vector<T, DIM> > dir(nn);
-			std::vector<T> dist2(nn);
+			std::size_t nn_count = nmolecule_indices.size();
+			std::vector< ublas::c_vector<T, DIM> > dir(nn_count);
+			std::vector<T> dist2(nn_count);
 			std::vector<std::size_t> nn_indices;	// indices within _nn_radius
-			nn_indices.reserve(nn);
+			nn_indices.reserve(nn_count);
 
 			auto mi = molecule_indices.begin();
 			while (mi != molecule_indices.end())
 			{
-				//LOG_COUT << "m = " << (*mi) << std::endl;
-
 				boost::shared_ptr< Molecule<T, DIM> > molecule = _molecules[*mi];
 
 				nn_indices.clear();
 
 				// loop over all neighbour molecules
-				for (std::size_t j = 0; j < nn; j++)
+				for (std::size_t j = 0; j < nn_count; j++)
 				{
 					// exclude molecule itself
 					if (nmolecule_indices[j] == *mi) continue;
@@ -1995,7 +1999,7 @@ public:
 
 					dist2[j] = ublas::inner_prod(dir[j], dir[j]);
 
-					if (dist2[j] < _nn_radius2) {
+					if (dist2[j] <= _nn_radius2) {
 						nn_indices.push_back(j);
 					}
 				}
@@ -2003,30 +2007,109 @@ public:
 				
 				// compute potential energy and gradient for metallic system
 				// Solhjoo_Simchi_Aashuri__Molecular_dynamics_simulation_of_melting,_solidification_and_remelting_process_of_aluminium.pdf
-				
+				// 
 				// 3.2.3. The Ra2i-Tabar and Sutton (RTS) many-body potentials for the metallic FCC random alloys
 
 				// 3.2.1. The Sutton–Chen many-body potentials for the elemental FCC metals
 
-				T U; // potential energy
-				ublas::c_vector<T, DIM> F; // force (grad U)
-				static const T param_epsilon = 33.147; // meV
+				T sum_V = 0, sum_rho = 0;
+				ublas::c_vector<T, DIM> dsum_V;
+				ublas::c_vector<T, DIM> dsum_rho;
+				static const T param_epsilon = 33.147 * 1e-5; // meV
+				static const T param_n = 7;
 				static const T param_m = 6;
 				static const T param_c = 16.399;
 				static const T param_a = 4.05;	// Angstrom
 
-			
+				std::fill(dsum_V.begin(), dsum_V.end(), (T)0);
+				std::fill(dsum_rho.begin(), dsum_rho.end(), (T)0);
 
-				// perform actual update
-				molecule->x += dt*molecules->v;
-				molecule->v += dt*molecules->a;
-				_cell->wrap_vector(molecules->x);
+				auto nn = nn_indices.begin();
+				while (nn != nn_indices.end())
+				{
+					T a_by_r = param_a/std::sqrt(dist2[*nn]);
+					ublas::c_vector<T, DIM> da_by_r(a_by_r/dist2[*nn]*dir[*nn]);
+
+					sum_V += std::pow(a_by_r, param_n);
+					sum_rho += std::pow(a_by_r, param_m);
+
+					dsum_V += param_n*std::pow(a_by_r, param_n-1)*da_by_r;
+					dsum_rho += param_m*std::pow(a_by_r, param_m-1)*da_by_r;
+
+					++nn;
+				}
+
+				// potential energy
+				molecule->U = param_epsilon*(0.5*sum_V - param_c*std::sqrt(sum_rho));
+
+				// force (dU/dx_m)
+				molecule->a0 = molecule->a;
+				molecule->a = -0.5/molecule->element->m*param_epsilon*(dsum_V - param_c/std::sqrt(sum_rho)*dsum_rho); 
+				++mi;
+			}
+		}
+	}
+
+
+	void perform_timestep(T t, T dt, T Tp, T dT, T p, T dp)
+	{
+		Timer __t("perform_timestep", false);
+
+		{
+			auto mi = _molecules.begin();
+			while (mi != _molecules.end())
+			{
+				//LOG_COUT << "m = " << (*mi) << std::endl;
+
+				boost::shared_ptr< Molecule<T, DIM> > molecule = *mi;
+
+				// velocity Verlet algorithm
+
+				molecule->x += dt*molecule->v + (0.5*dt*dt)*molecule->a;
+				if (_periodic_bc) {
+					_cell->wrap_vector(molecule->x);
+				}
 
 				++mi;
 			}
 		}
 
+
 		verlet_update();
+		compute_forces();
+		
+
+		ublas::c_vector<T, DIM> mean_v;	// mean velocity
+		std::fill(mean_v.begin(), mean_v.end(), (T)0);
+
+		{
+			auto mi = _molecules.begin();
+			while (mi != _molecules.end())
+			{
+				boost::shared_ptr< Molecule<T, DIM> > molecule = *mi;
+
+				molecule->v += (0.5*dt)*(molecule->a + molecule->a0);
+				mean_v += molecule->v;
+
+				++mi;
+			}
+		}
+
+
+		// adjust to zero mean velocity
+
+		mean_v /= (T) _molecules.size();
+
+		{
+			auto mi = _molecules.begin();
+			while (mi != _molecules.end())
+			{
+				boost::shared_ptr< Molecule<T, DIM> > molecule = *mi;
+
+				(*mi)->v -= mean_v;
+				++mi;
+			}
+		}
 	}
 
 	void write_timestep(std::size_t index, T t, T Tp, T p, std::ofstream & f)
@@ -2092,13 +2175,12 @@ public:
 				// create random position and velocity
 				for (std::size_t j = 0; j < DIM; j++) {
 					m->x[j] = p0[j] + L[j]*rnd.rnd();
-					m->a[j] = 0.01*(rnd.rnd() - 0.5);
-					m->v[j] = 0.1*(rnd.rnd() - 0.5);
+					m->a[j] = 0.00*(rnd.rnd() - 0.5);
+					m->v[j] = 0.0*(rnd.rnd() - 0.5);
 				}
 
 				// wrap position
 				_cell->wrap_vector(m->x);
-				m->x0 = m->x;
 
 				// add molecule
 				_molecules.push_back(m);
@@ -2112,6 +2194,9 @@ public:
 
 		// init verlet map
 		verlet_update();
+
+		// init forces
+		compute_forces();
 	}
 
 	void verlet_update()
@@ -2161,6 +2246,8 @@ public:
 		// add molecule to verlet cell
 		boost::shared_ptr<VerletCell<T, DIM> > v_cell = _vmap->get_cell(index);
 		v_cell->add(m_index);
+
+		if (!_periodic_bc) return;
 
 		// add ghost elements
 		const std::vector< ublas::c_vector<T, DIM> >& neighbour_translations = _cell->neighbour_translations();
@@ -2614,6 +2701,15 @@ public:
 			if (v.first == "run")
 			{
 				solver->run();
+			}
+			else if (v.first == "move_molecule")
+			{
+				ublas::c_vector<T, DIM> p;
+				for (int d = 0; d < DIM; d++) {
+					p[d] = pt_get<T>(attr, (boost::format("p%s") % d).str(), p[d]);
+				}
+				std::size_t id = pt_get<std::size_t>(attr, "id");
+				solver->move_molecule(id, p);
 			}
 			else if (v.first == "print_timings")
 			{
