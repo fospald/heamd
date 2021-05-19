@@ -21,18 +21,28 @@
 		<element id="Co" color="#0000ff" />
 	</elements>
 	
+	<variables>
+		<L type="float" value="4" />
+		<m type="int" value="3" />
+		<s type="int" value="40" />
+	</variables>
+	
 	<!-- RVE dimensions -->
 	<cell type="cubic">
-		<a0>4</a0>
-		<a1>4</a1>
-		<a2>4</a2>
+		<a0>L</a0>
+		<a1>L</a1>
+		<a2>L</a2>
 	</cell>
 	
 	<!-- random seed -->
-	<seed>1</seed>
+	<seed>0</seed>
 
 	<!-- number of atoms -->
 	<n>4</n>
+	
+	<initial_position>fcc</intial_position>
+	<initial_velocity>boltzmann</initial_velocity>
+	<lattice_multiplier>m</lattice_multiplier>
 	
 	<!-- periodic boundary conditions -->
 	<periodic_bc>1</periodic_bc>
@@ -49,7 +59,7 @@
 	<nn_radius>-1</nn_radius>
 	
 	<!-- number of neighbour atom in each direction to compute dmax, if not provided -->
-	<nn_levels>10</nn_levels>
+	<nn_levels>2</nn_levels>
 
 	<!-- thermodynamic state variables and simulation time
 	     if values for pressure or temperature are not provided
@@ -57,29 +67,27 @@
 	     if initial temperature or pressure it will be calculated from the other variable
 		-->
 	<steps>
-		<step t="0" T="1000" />
-		<step t="1000" T="300" />
+		<step t="0" T="300" />
+		<step t="20*s" T="500" />
 	</steps>
 	
 	<!-- fixed time step size -->
-	<dt>0.5</dt>
+	<dt>0.01</dt>
 
-	
 	<!-- data storage interval in multiple of dt -->
-	<step_limit>0.01</step_limit>
-	
-	<!-- data storage interval in multiple of dt -->
-	<store_interval>10</store_interval>
+	<store_interval>2*s</store_interval>
 	
 	<!-- number of OpenMP threads -->
-	<num_threads>1</num_threads>
+	<num_threads>4</num_threads>
 
 	<!-- actions to perform -->
 	<actions>
-		<move_molecule id="0" p0="0" p1="0" p2="0" />
-		<move_molecule id="1" p0="0" p1="2" p2="2" />
-		<move_molecule id="2" p0="2" p1="0" p2="2" />
-		<move_molecule id="3" p0="1.9" p1="2" p2="0" />
+		<!--
+		<move_molecule id="0" p0="L/4" p1="L/4" p2="L/4" />
+		<move_molecule id="1" p0="L/4" p1="L*3/4" p2="L*3/4" />
+		<move_molecule id="2" p0="L*3/4" p1="L/4" p2="L*3/4" />
+		<move_molecule id="3" p0="L*3/4 + 0.1*L" p1="L*3/4" p2="L/4" />
+		-->
 		<run />
 		<print_timings />
 	</actions>

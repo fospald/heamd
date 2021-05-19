@@ -71,6 +71,78 @@ def hex_to_rgb(value):
 	return tuple(int(value[i:i + lv // 3], 16) for i in range(0, lv, lv // 3))
 
 
+def savitzky_golay(y, window_size, order, deriv=0, rate=1):
+        r"""Smooth (and optionally differentiate) data with a Savitzky-Golay filter.
+        The Savitzky-Golay filter removes high frequency noise from data.
+        It has the advantage of preserving the original shape and
+        features of the signal better than other types of filtering
+        approaches, such as moving averages techniques.
+        Parameters
+        ----------
+        y : array_like, shape (N,)
+                the values of the time history of the signal.
+        window_size : int
+                the length of the window. Must be an odd integer number.
+        order : int
+                the order of the polynomial used in the filtering.
+                Must be less then `window_size` - 1.
+        deriv: int
+                the order of the derivative to compute (default = 0 means only smoothing)
+        Returns
+        -------
+        ys : ndarray, shape (N)
+                the smoothed signal (or it's n-th derivative).
+        Notes
+        -----
+        The Savitzky-Golay is a type of low-pass filter, particularly
+        suited for smoothing noisy data. The main idea behind this
+        approach is to make for each point a least-square fit with a
+        polynomial of high order over a odd-sized window centered at
+        the point.
+        Examples
+        --------
+        t = np.linspace(-4, 4, 500)
+        y = np.exp( -t**2 ) + np.random.normal(0, 0.05, t.shape)
+        ysg = savitzky_golay(y, window_size=31, order=4)
+        import matplotlib.pyplot as plt
+        plt.plot(t, y, label='Noisy signal')
+        plt.plot(t, np.exp(-t**2), 'k', lw=1.5, label='Original signal')
+        plt.plot(t, ysg, 'r', label='Filtered signal')
+        plt.legend()
+        plt.show()
+        References
+        ----------
+        .. [1] A. Savitzky, M. J. E. Golay, Smoothing and Differentiation of
+           Data by Simplified Least Squares Procedures. Analytical
+           Chemistry, 1964, 36 (8), pp 1627-1639.
+        .. [2] Numerical Recipes 3rd Edition: The Art of Scientific Computing
+           W.H. Press, S.A. Teukolsky, W.T. Vetterling, B.P. Flannery
+           Cambridge University Press ISBN-13: 9780521880688
+        """
+        from math import factorial
+
+        try:
+                window_size = np.abs(np.int(window_size))
+                order = np.abs(np.int(order))
+        except ValueError as msg:
+                raise ValueError("window_size and order have to be of type int")
+        if window_size % 2 != 1 or window_size < 1:
+                raise TypeError("window_size size must be a positive odd number")
+        if window_size < order + 2:
+                raise TypeError("window_size is too small for the polynomials order")
+        order_range = range(order+1)
+        half_window = (window_size -1) // 2
+        # precompute coefficients
+        b = np.mat([[k**i for i in order_range] for k in range(-half_window, half_window+1)])
+        m = np.linalg.pinv(b).A[deriv] * rate**deriv * factorial(deriv)
+        # pad the signal at the extremes with
+        # values taken from the signal itself
+        firstvals = y[0] - np.abs( y[1:half_window+1][::-1] - y[0] )
+        lastvals = y[-1] + np.abs(y[-half_window-1:-1][::-1] - y[-1])
+        y = np.concatenate((firstvals, y, lastvals))
+        return np.convolve( m[::-1], y, mode='valid')
+
+
 
 class PreferencesWidget(QtWidgets.QDialog):
 
@@ -695,12 +767,21 @@ class PlotWidget(QtWidgets.QWidget):
 		QtWidgets.QWidget.__init__(self, parent)
 		self.setContentsMargins(2, 2, 2, 2)
 		
-
 		vbox = QtWidgets.QVBoxLayout(self)
 		vbox.setContentsMargins(2, 2, 2, 2)
-		#vbox.setSpacing(0)
-
+		tab = QtWidgets.QTabWidget()
+		vbox.addWidget(tab)
 		
+
+		vbox = QtWidgets.QVBoxLayout()
+		vbox.setContentsMargins(2, 2, 2, 2)
+		vbox.setSpacing(2)
+
+		wrap = QtWidgets.QWidget()
+		wrap.setLayout(vbox)
+		tab.addTab(wrap, "RVE view")
+		
+
 		spacing = 2
 
 		flow = FlowLayout()
@@ -734,7 +815,7 @@ class PlotWidget(QtWidgets.QWidget):
 		hbox.addWidget(self.viewXMLButton)
 
 		flow.addLayout(hbox)
-		vbox.addLayout(flow)
+		#vbox.addLayout(flow)
 
 
 		self.timestepSlider = QtWidgets.QSlider()
@@ -753,9 +834,23 @@ class PlotWidget(QtWidgets.QWidget):
 		self.timestepLabel.setText("%04d" % self.timestepSlider.value())
 
 		hbox = QtWidgets.QHBoxLayout()
+		hbox.setContentsMargins(5, 5, 5, 5)
 		hbox.addWidget(QtWidgets.QLabel("Timestep:"))
 		hbox.addWidget(self.timestepSlider)
 		hbox.addWidget(self.timestepLabel)
+		vbox.addLayout(hbox)
+
+
+
+		self.ghostCheck = QtWidgets.QCheckBox("show ghosts")
+		if (other != None):
+			self.ghostCheck.setCheckState(other.ghostCheck.checkState())
+		self.ghostCheck.stateChanged.connect(self.ghostCheckChanged)
+
+
+		hbox = QtWidgets.QHBoxLayout()
+		hbox.setContentsMargins(5, 5, 5, 5)
+		hbox.addWidget(self.ghostCheck)
 		vbox.addLayout(hbox)
 
 
@@ -771,7 +866,6 @@ class PlotWidget(QtWidgets.QWidget):
 		#wvbox.setSpacing(0)
 		#wvbox.addWidget(self.fignavbar)
 		#wvbox.addWidget(self.figcanvas)
-
 
 
 		# init rve rendering
@@ -809,6 +903,68 @@ class PlotWidget(QtWidgets.QWidget):
 		wrap.setLayout(wvbox)
 		self.stack.addWidget(wrap)
 
+
+
+		time = []
+		Ekin = []
+		Epot = []
+		Etot = []
+		T = []
+		P = []
+		for ts in self.timesteps:
+			stats = ts.find("stats")
+			time.append(float(ts.attrib['t']));
+			Ekin.append(float(stats.find("Ekin").text));
+			Epot.append(float(stats.find("Epot").text));
+			Etot.append(float(stats.find("Etot").text));
+			T.append(float(stats.find("T").text));
+			P.append(float(stats.find("P").text));
+
+		order = 3
+		T = np.array(T)
+		T = savitzky_golay(T, int(len(T)/10 + order) | 1, order, deriv=0, rate=1)
+
+		pg.setConfigOptions(antialias=True)
+
+
+		win = pg.GraphicsLayoutWidget()
+
+		plot = win.addPlot(xtitle="Energy")
+		plot.setLabel('left', 'Energy', units='eV')
+		plot.setLabel('bottom', 'Time', units='ps')
+		plot.addLegend()
+		plot.plot(time, np.array(Ekin), pen=(255,0,0), name="Ekin")
+		plot.plot(time, np.array(Epot) - Epot[0], pen=(0,255,0), name="Epot")
+		plot.plot(time, np.array(Etot) - Epot[0], pen=(0,0,255), name="Etot")
+
+		tab.addTab(win, "Energy")
+
+
+		win = pg.GraphicsLayoutWidget()
+
+		plot = win.addPlot(xtitle="Temperature")
+		plot.setLabel('left', 'Temperature', units='K')
+		plot.setLabel('bottom', 'Time', units='ps')
+		#plot.addLegend()
+		plot.plot(time, np.array(T), pen=(255,255,255), name="T")
+
+		tab.addTab(win, "Temperature")
+
+
+		"""
+		win = pg.GraphicsLayoutWidget()
+
+		plot = win.addPlot(xtitle="Pressure")
+		plot.setLabel('left', 'Pressure', units='bar')
+		plot.setLabel('bottom', 'Time', units='ps')
+		#plot.addLegend()
+		plot.plot(time, np.array(P), pen=(255,255,255), name="P")
+
+		tab.addTab(win, "Pressure")
+		"""
+
+
+
 		self.textEdit = XMLTextEdit()
 		self.textEdit.setReadOnly(True)
 		self.textEdit.setPlainText(xml)
@@ -832,7 +988,7 @@ class PlotWidget(QtWidgets.QWidget):
 			self.viewXMLButton.setChecked(other.viewXMLButton.isChecked())
 			self.viewResultDataButton.setChecked(other.viewResultDataButton.isChecked())
 
-		self.setLayout(vbox)
+		#self.setLayout(vbox)
 
 		try:
 			if not xml_root is None:
@@ -941,6 +1097,9 @@ class PlotWidget(QtWidgets.QWidget):
 
 		#scipy.misc.imsave(filename, image) #, 'PNG')
 
+	def ghostCheckChanged(self):
+		self.updateTimestep()
+
 	def updateFigCanvasVisible(self):
 		if self.viewXMLButton.isChecked():
 			self.stack.setCurrentIndex(1)
@@ -967,8 +1126,8 @@ class PlotWidget(QtWidgets.QWidget):
 
 	def updateTimestep(self):
 
-		show_ghost = True
-		show_ghost = False
+		r_scale = 0.5
+		show_ghost = self.ghostCheck.isChecked()
 
 		ts = self.timesteps[self.timestepSlider.value()]
 		molecules = ts.find("molecules")
@@ -982,7 +1141,7 @@ class PlotWidget(QtWidgets.QWidget):
 		self.size_data = np.zeros((n,))
 		self.color_data = np.zeros((n, 4))
 		self.color_data[0:len(molecules),:] = self.color_data0
-		self.size_data[0:len(molecules)] = self.size_data0
+		self.size_data[0:len(molecules)] = r_scale*self.size_data0
 
 		# add molecules
 		for i, m in enumerate(molecules):
@@ -2384,6 +2543,8 @@ class MainWindow(QtWidgets.QMainWindow):
 			os.chdir(filedir)
 			with open(filename, "rt") as f:
 				txt = f.read()
+			if txt.startswith("<results>"):
+				return self.loadResults(txt)
 			self.textEdit.setPlainText(txt)
 			self.filename = filename
 			self.filetype = os.path.splitext(filename)[1]
@@ -2395,6 +2556,16 @@ class MainWindow(QtWidgets.QMainWindow):
 		except:
 			QtWidgets.QMessageBox.critical(self, "Error", traceback.format_exc())
 			return False
+		return True
+
+	def loadResults(self, resultText):
+		result_xml = ET.fromstring(resultText)
+
+		tab = PlotWidget("", None, resultText, result_xml, None)
+		tab.file_id = self.file_id
+
+		i = self.addTab(tab, "Results")
+
 		return True
 
 	def newProjectGui(self):
@@ -2462,46 +2633,56 @@ class MainWindow(QtWidgets.QMainWindow):
 			xml_root = None
 			print(traceback.format_exc())
 
+		show_progress = True
 
-		progress = QtWidgets.QProgressDialog("Computation is running...", "Cancel", 0, 0, self)
-		progress.setWindowTitle("Run")
-		progress.setWindowFlags(progress.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint)
+		print("Running HM with id", id(hm))
 
-		#progress.setWindowModality(QtCore.Qt.WindowModal)
-		#tol = hm.get("solver.tol".encode('utf8'))
+		if show_progress:
 
-		def process_events():
-			for i in range(5):
-				QtWidgets.QApplication.processEvents()
+			progress = QtWidgets.QProgressDialog("Computation is running...", "Cancel", 0, 0, self)
+			progress.setWindowTitle("Run")
+			progress.setWindowFlags(progress.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint)
 
-		def timestep_callback():
+			#progress.setWindowModality(QtCore.Qt.WindowModal)
+			#tol = hm.get("solver.tol".encode('utf8'))
+
+			def process_events():
+				for i in range(5):
+					QtWidgets.QApplication.processEvents()
+
+			def timestep_callback():
+				process_events()
+				return progress.wasCanceled()
+
+
+			try:
+				hm.set_timestep_callback(timestep_callback)
+				#print hm.get_xml()
+
+				progress.show()
+				process_events()
+				
+				hm.run()
+
+				if progress.wasCanceled():
+					progress.close()
+					print("return 1")
+					del hm
+					return
+
+			except:
+				print(traceback.format_exc())
+
 			process_events()
-			return progress.wasCanceled()
-
-
-		try:
-			hm.set_timestep_callback(timestep_callback)
-			#print hm.get_xml()
-
-			progress.show()
-			process_events()
-			
-			print("Running HM with id", id(hm))
-			hm.run()
-
-			if progress.wasCanceled():
-				progress.close()
-				print("return 1")
-				del hm
-				return
-
-		except:
-			print(traceback.format_exc())
-
-		process_events()
-		progress.close()
-		progress.hide()
-		
+			progress.close()
+			progress.hide()
+	
+		else:
+			try:
+				hm.run()
+			except:
+				print(traceback.format_exc())
+	
 		self.runCount += 1
 
 		other = self.tabWidget.currentWidget()
@@ -2510,7 +2691,6 @@ class MainWindow(QtWidgets.QMainWindow):
 			other = None
 		elif other.file_id != self.file_id:
 			other = None
-
 
 
 		result_dir = os.path.dirname(self.filename) if not self.filename is None else os.getcwd()

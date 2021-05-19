@@ -10,6 +10,7 @@
 # heamd
 
 A molecular dynamics simulation tool for high entropy alloys.
+This project is currently in development and not ready to use!
 
 * C++, OpenMP multiprocessing, XML + Python scripting interface
 * ...
