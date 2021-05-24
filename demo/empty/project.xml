@@ -23,8 +23,7 @@
 	
 	<variables>
 		<L type="float" value="4" />
-		<m type="int" value="3" />
-		<s type="int" value="40" />
+		<m type="int" value="1" />
 	</variables>
 	
 	<!-- RVE dimensions -->
@@ -40,7 +39,7 @@
 	<!-- number of atoms -->
 	<n>4</n>
 	
-	<initial_position>fcc</intial_position>
+	<initial_position>fcc</initial_position>
 	<initial_velocity>boltzmann</initial_velocity>
 	<lattice_multiplier>m</lattice_multiplier>
 	
@@ -54,12 +53,12 @@
 		<fraction element="Co" value="0.0" />
 	</fractions>
 
-	<!-- max neighbour distance for force calculations, relative value to the RVE size max(dx,dy,dz)
+	<!-- xut-off radius, max neighbour distance for force calculations, relative value to the RVE size max(dx,dy,dz)
 	     computed automatically if < 0 -->
-	<nn_radius>-1</nn_radius>
+	<nn_radius>6</nn_radius>
 	
-	<!-- number of neighbour atom in each direction to compute dmax, if not provided -->
-	<nn_levels>2</nn_levels>
+	<!-- number of neighbour atoms in each direction to compute dmax, if not provided -->
+	<nn_levels>1</nn_levels>
 
 	<!-- thermodynamic state variables and simulation time
 	     if values for pressure or temperature are not provided
@@ -68,17 +67,28 @@
 		-->
 	<steps>
 		<step t="0" T="300" />
-		<step t="20*s" T="500" />
+		<step t="100" T="300" />
 	</steps>
+			<step t="200" T="300" />
+
+	<!-- automatic time step size based on maximal allowed molecule displacement per time step -->
+	<ds_max>0.05</ds_max>
+
+	<time_step_mode>ds_max</time_step_mode>
 	
 	<!-- fixed time step size -->
-	<dt>0.01</dt>
+	<dt>0.005</dt>
 
+	<tau_T>0.01</tau_T>
+	
 	<!-- data storage interval in multiple of dt -->
-	<store_interval>2*s</store_interval>
+	<store_interval>0</store_interval>
+	
+		<!-- number of data storage points evenly spaced accross time -->
+	<store_number>500</store_number>
 	
 	<!-- number of OpenMP threads -->
-	<num_threads>4</num_threads>
+	<num_threads>6</num_threads>
 
 	<!-- actions to perform -->
 	<actions>

@@ -909,6 +909,7 @@ class PlotWidget(QtWidgets.QWidget):
 		Ekin = []
 		Epot = []
 		Etot = []
+		MV = []
 		T = []
 		P = []
 		for ts in self.timesteps:
@@ -919,10 +920,13 @@ class PlotWidget(QtWidgets.QWidget):
 			Etot.append(float(stats.find("Etot").text));
 			T.append(float(stats.find("T").text));
 			P.append(float(stats.find("P").text));
+			MV.append(float(stats.find("MV").text));
 
+		"""
 		order = 3
 		T = np.array(T)
-		T = savitzky_golay(T, int(len(T)/10 + order) | 1, order, deriv=0, rate=1)
+		T = savitzky_golay(T, int(len(T)/5 + order) | 1, order, deriv=0, rate=1)
+		"""
 
 		pg.setConfigOptions(antialias=True)
 
@@ -936,6 +940,7 @@ class PlotWidget(QtWidgets.QWidget):
 		plot.plot(time, np.array(Ekin), pen=(255,0,0), name="Ekin")
 		plot.plot(time, np.array(Epot) - Epot[0], pen=(0,255,0), name="Epot")
 		plot.plot(time, np.array(Etot) - Epot[0], pen=(0,0,255), name="Etot")
+		plot.plot(time, np.array(MV), pen=(255,255,255), name="p²/2M")
 
 		tab.addTab(win, "Energy")
 
@@ -949,6 +954,19 @@ class PlotWidget(QtWidgets.QWidget):
 		plot.plot(time, np.array(T), pen=(255,255,255), name="T")
 
 		tab.addTab(win, "Temperature")
+
+		"""
+		win = pg.GraphicsLayoutWidget()
+
+		plot = win.addPlot(xtitle="Impulse")
+		plot.setLabel('left', 'Impulse', units='u*A/ps')
+		plot.setLabel('bottom', 'Time', units='ps')
+		#plot.addLegend()
+		plot.plot(time, np.array(MV), pen=(255,255,255), name="p")
+
+		tab.addTab(win, "Impulse")
+		"""
+
 
 
 		"""
@@ -1122,7 +1140,8 @@ class PlotWidget(QtWidgets.QWidget):
 
 	def timestepSliderChanged(self):
 		self.updateTimestep()
-		self.timestepLabel.setText("%04d" % self.timestepSlider.value())
+		ts = self.timesteps[self.timestepSlider.value()]
+		self.timestepLabel.setText("%g" % float(ts.attrib["t"]))
 
 	def updateTimestep(self):
 
@@ -2642,6 +2661,8 @@ class MainWindow(QtWidgets.QMainWindow):
 			progress = QtWidgets.QProgressDialog("Computation is running...", "Cancel", 0, 0, self)
 			progress.setWindowTitle("Run")
 			progress.setWindowFlags(progress.windowFlags() & ~QtCore.Qt.WindowContextHelpButtonHint)
+			progress.setMinimum(0)
+			progress.setMaximum(10000)
 
 			#progress.setWindowModality(QtCore.Qt.WindowModal)
 			#tol = hm.get("solver.tol".encode('utf8'))
@@ -2650,8 +2671,9 @@ class MainWindow(QtWidgets.QMainWindow):
 				for i in range(5):
 					QtWidgets.QApplication.processEvents()
 
-			def timestep_callback():
+			def timestep_callback(p):
 				process_events()
+				progress.setValue(int(p*10000))
 				return progress.wasCanceled()
 
 
