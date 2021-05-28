@@ -23,7 +23,7 @@
 	
 	<variables>
 		<L type="float" value="4" />
-		<m type="int" value="1" />
+		<m type="int" value="4" />
 	</variables>
 	
 	<!-- RVE dimensions -->
@@ -48,14 +48,14 @@
 	
 	<!-- volume fractions -->
 	<fractions>
-		<fraction element="Al" value="1" />
-		<fraction element="Cr" value="0" />
+		<fraction element="Al" value="254/256" color="#ff0000" />
+		<fraction element="Al" value="2/256" color="#00ff00" />
 		<fraction element="Co" value="0.0" />
 	</fractions>
 
 	<!-- xut-off radius, max neighbour distance for force calculations, relative value to the RVE size max(dx,dy,dz)
 	     computed automatically if < 0 -->
-	<nn_radius>6</nn_radius>
+	<nn_radius>7.5</nn_radius>
 	
 	<!-- number of neighbour atoms in each direction to compute dmax, if not provided -->
 	<nn_levels>1</nn_levels>
@@ -66,18 +66,17 @@
 	     if initial temperature or pressure it will be calculated from the other variable
 		-->
 	<steps>
-		<step t="0" T="300" />
-		<step t="100" T="300" />
+		<step t="0" T="2000" />
+		<step t="1000" T="0.001" />
 	</steps>
-			<step t="200" T="300" />
 
 	<!-- automatic time step size based on maximal allowed molecule displacement per time step -->
-	<ds_max>0.05</ds_max>
+	<ds_max>0.01</ds_max>
 
 	<time_step_mode>ds_max</time_step_mode>
 	
 	<!-- fixed time step size -->
-	<dt>0.005</dt>
+	<dt>0.01</dt>
 
 	<tau_T>0.01</tau_T>
 	
@@ -96,7 +95,7 @@
 		<move_molecule id="0" p0="L/4" p1="L/4" p2="L/4" />
 		<move_molecule id="1" p0="L/4" p1="L*3/4" p2="L*3/4" />
 		<move_molecule id="2" p0="L*3/4" p1="L/4" p2="L*3/4" />
-		<move_molecule id="3" p0="L*3/4 + 0.1*L" p1="L*3/4" p2="L/4" />
+		<move_molecule id="3" p0="L*3/4" p1="L*3/4" p2="L/4" />
 		-->
 		<run />
 		<print_timings />

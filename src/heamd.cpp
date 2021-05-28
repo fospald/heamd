@@ -1435,8 +1435,8 @@ class Molecule
 {
 public:
 	ublas::c_vector<T, DIM> x;	// position
-	ublas::c_vector<T, DIM> a;	// acceleration
-	ublas::c_vector<T, DIM> a0;	// previous acceleration
+	ublas::c_vector<T, DIM> F;	// force
+	ublas::c_vector<T, DIM> F0;	// previous force
 	ublas::c_vector<T, DIM> v;	// velocity
 	T U;				// potential energy
 	boost::shared_ptr<Element<T, DIM> > element;	// base element
@@ -1566,19 +1566,19 @@ template <typename T, int DIM>
 class VerletCell
 {
 protected:
-	std::vector<std::size_t> _indices;	// list with molecule indices
-	std::vector<std::size_t> _nindices;	// list with neighbour molecule indices
+	std::vector<int> _indices;	// list with molecule indices
+	std::vector<int> _nindices;	// list with neighbour molecule indices
 
 public:
 	VerletCell()
 	{
 	}
 
-	const std::vector<std::size_t>& indices() const {
+	const std::vector<int>& indices() const {
 		return _indices;
 	}
 
-	std::vector<std::size_t>& nindices() {
+	std::vector<int>& nindices() {
 		return _nindices;
 	}
 
@@ -1588,7 +1588,7 @@ public:
 		_nindices.clear();
 	}
 
-	void add(std::size_t index)
+	void add(int index)
 	{
 		_indices.push_back(index);
 	}
@@ -1680,10 +1680,13 @@ public:
 	virtual void readSettings(const ptree::ptree& pt) = 0;
 
 	virtual void compute(
+		std::size_t mi,
 		const std::vector<std::size_t>& nn_indices,
+		const std::vector<int>& nmolecule_indices,
 		const std::vector<T>& dist2,
 		const std::vector< ublas::c_vector<T, DIM> >& dir,
-		T m, T& U, ublas::c_vector<T, DIM>& a) = 0;
+		std::vector< boost::shared_ptr< Molecule<T, DIM> > >& molecules,
+		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules) = 0;
 };
 
 template <typename T, int DIM>
@@ -1695,56 +1698,84 @@ public:
 	}
 
 	void compute(
+		std::size_t mi,
 		const std::vector<std::size_t>& nn_indices,
+		const std::vector<int>& nmolecule_indices,
 		const std::vector<T>& dist2,
 		const std::vector< ublas::c_vector<T, DIM> >& dir,
-		T m, T& U, ublas::c_vector<T, DIM>& a)
+		std::vector< boost::shared_ptr< Molecule<T, DIM> > >& molecules,
+		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules)
 	{
-		T sum_V = 0, sum_rho = 0;
-		ublas::c_vector<T, DIM> dsum_V;
-		ublas::c_vector<T, DIM> dsum_rho;
-
 		static const T param_epsilon = 33.147 * 1e-3 * const_eV; // J
 		static const T param_n = 7;
-		static const T param_m = 3; //
+		static const T param_m = 6; //
 		static const T param_c = 16.399;
 		static const T param_a = 4.05 * unit_length; // m
 
-		std::fill(dsum_V.begin(), dsum_V.end(), (T)0);
-		std::fill(dsum_rho.begin(), dsum_rho.end(), (T)0);
 
 		//LOG_COUT << "compute" << std::endl;
 
+
+		//LOG_COUT << "nn " << (*nn) << std::endl;
+
+		// potential energy
+
+		T sum_V = 0, sum_rho = 0;
 		auto nn = nn_indices.begin();
 		while (nn != nn_indices.end())
 		{
 			//LOG_COUT << "nn " << (*nn) << std::endl;
 
 			T a_by_r = param_a/std::sqrt(dist2[*nn]);
-			ublas::c_vector<T, DIM> da_by_r((a_by_r/dist2[*nn])*dir[*nn]);
 
 			sum_V += std::pow(a_by_r, param_n);
 			sum_rho += std::pow(a_by_r, param_m);
 
-			dsum_V += (param_n*std::pow(a_by_r, param_n-1))*da_by_r;
-			dsum_rho += (param_m*std::pow(a_by_r, param_m-1))*da_by_r;
+			++nn;
+		}
+
+		molecules[mi]->U = param_epsilon*(0.5*sum_V - param_c*std::sqrt(sum_rho));
+
+
+		// accelerations
+
+		ublas::c_vector<T, DIM> F;
+		ublas::c_vector<T, DIM> F_sum;
+
+		std::fill(F_sum.begin(), F_sum.end(), (T)0);
+
+		nn = nn_indices.begin();
+		while (nn != nn_indices.end())
+		{
+			// compute potential gradient w.r.t. molecules[nn]->x
+
+			T a_by_r = param_a/std::sqrt(dist2[*nn]);
+
+			F = (0.5*param_epsilon*(
+				param_n*std::pow(a_by_r, param_n-1)
+				- param_c/std::sqrt(sum_rho)*param_m*std::pow(a_by_r, param_m-1))
+			*(a_by_r/dist2[*nn]))*dir[*nn];
+
+			int mi0 = nmolecule_indices[*nn];
+
+			if (mi0 < 0) {
+				mi0 = gmolecules[-mi0]->molecule_index;
+			}
+
+			#pragma omp critical
+			molecules[mi0]->F += F;
+
+			F_sum += F;
 
 			++nn;
 		}
+
+		// accelleration (-1/m*dU/dx_m)
+		#pragma omp critical
+		molecules[mi]->F -= F_sum;
+
 		//LOG_COUT << "." << std::endl;
 
-		// potential energy
-		U = param_epsilon*(0.5*sum_V - param_c*std::sqrt(sum_rho));
-		//U = param_epsilon*(0.5*sum_V - param_c*sum_rho);
-		//LOG_COUT << "U " << U << std::endl;
-
-		// force (-2*dU/dx_m)
-		// NOTE: a factor of 2 is needed because we do not derive the total potential
-		// but only the potential for the i-th molecule
-		// since the potential is symmetric there are half of the other contributions
-		// to the derivative missing involving the i-th molecule
-		a = (-1.0/m*param_epsilon)*(dsum_V - param_c/std::sqrt(sum_rho)*dsum_rho); 
-		//a = (-1.0/m*param_epsilon)*(dsum_V - 2*param_c*dsum_rho); 
 		//LOG_COUT << "a " << a[0] << " " << a[1] << " " << a[2] << std::endl;
 	}
 };
@@ -1774,7 +1805,6 @@ protected:
 	std::size_t _store_interval;
 	std::size_t _callback_interval;
 	std::size_t _store_number;
-	std::size_t _ghost_offset;
 	boost::shared_ptr< UnitCell<T, DIM> > _cell;
 	boost::shared_ptr< VerletMap<T, DIM> > _vmap;
 	boost::shared_ptr< ElementDatabase<T, DIM> > _element_db;
@@ -1999,9 +2029,6 @@ public:
 
 	void run()
 	{
-		// set offset for ghost cells
-		_ghost_offset = _molecules.size();
-
 		LOG_COUT << "verlet" << std::endl;
 		// init verlet map
 		verlet_update();
@@ -2057,7 +2084,7 @@ public:
 					auto mi = _molecules.begin();
 					while (mi != _molecules.end()) {
 						T v = std::sqrt(ublas::inner_prod((*mi)->v, (*mi)->v));
-						T a = std::sqrt(ublas::inner_prod((*mi)->a, (*mi)->a));
+						T a = std::sqrt(ublas::inner_prod((*mi)->F, (*mi)->F)) / (*mi)->element->m;
 						T dt_opt = 1/(v/_ds_max + std::sqrt(a/(2*_ds_max)));
 						dt = std::min(dt, dt_opt);
 						++mi;
@@ -2164,6 +2191,17 @@ public:
 	{
 		Timer __t("compute_forces", false);
 
+		// clear accelerations and store old accelerations for velocity verlet method
+		auto mi = _molecules.begin();
+		while (mi != _molecules.end())
+		{
+			boost::shared_ptr< Molecule<T, DIM> > molecule = *mi;
+			molecule->F0 = molecule->F;
+			std::fill(molecule->F.begin(), molecule->F.end(), (T)0);
+			++mi;
+		}
+
+
 		std::size_t n = _vdims[0];
 		for (std::size_t i = 1; i < DIM; i++) {
 			n *= _vdims[i];
@@ -2187,8 +2225,8 @@ public:
 
 			// collect all molecule indices
 			boost::shared_ptr<VerletCell<T, DIM> > cell = _vmap->get_cell(cell_index);
-			const std::vector<std::size_t>& molecule_indices = cell->indices();
-			std::vector<std::size_t>& nmolecule_indices = cell->nindices();
+			const std::vector<int>& molecule_indices = cell->indices();
+			std::vector<int>& nmolecule_indices = cell->nindices();
 			std::size_t m = std::pow(3, DIM);
 
 			// iterate over all neighbour cells and cell itself
@@ -2207,7 +2245,7 @@ public:
 
 				// append molecules
 				boost::shared_ptr<VerletCell<T, DIM> > ncell = _vmap->get_cell(ncell_index);
-				const std::vector<std::size_t>& indices = ncell->indices();
+				const std::vector<int>& indices = ncell->indices();
 				nmolecule_indices.insert(nmolecule_indices.end(), indices.begin(), indices.end());
 			}
 
@@ -2228,14 +2266,15 @@ public:
 				// loop over all neighbour molecules
 				for (std::size_t j = 0; j < nn_count; j++)
 				{
-					// exclude molecule itself
-					if (nmolecule_indices[j] == *mi) continue;
-
-					if (nmolecule_indices[j] >= _ghost_offset) {
-						boost::shared_ptr< GhostMolecule<T, DIM> > nmolecule = _ghost_molecules[(std::size_t)(nmolecule_indices[j] - _ghost_offset)];
+					if (nmolecule_indices[j] < 0) {
+						
+						boost::shared_ptr< GhostMolecule<T, DIM> > nmolecule = _ghost_molecules[(std::size_t)(-nmolecule_indices[j])];
 						dir[j] = _molecules[nmolecule->molecule_index]->x + nmolecule->t - molecule->x;
 					}
 					else {
+						// exclude molecule itself
+						if (nmolecule_indices[j] == *mi) continue;
+
 						boost::shared_ptr< Molecule<T, DIM> > nmolecule = _molecules[nmolecule_indices[j]];
 						dir[j] = nmolecule->x - molecule->x;
 					}
@@ -2257,9 +2296,9 @@ public:
 
 
 				// force (-dU/dx_m)
-				molecule->a0 = molecule->a;
 
-				_potential->compute(nn_indices, dist2, dir, molecule->element->m, molecule->U, molecule->a);
+				_potential->compute(*mi, nn_indices, nmolecule_indices, dist2, dir, _molecules, _ghost_molecules);
+
 				++mi;
 			}
 		}
@@ -2284,7 +2323,7 @@ public:
 
 				//LOG_COUT << "v=" << molecule->v[0] << " a=" << molecule->a[0] << " x=" << molecule->x[0]  << std::endl;
 
-				molecule->x += dt*molecule->v + (0.5*dt*dt)*molecule->a;
+				molecule->x += dt*molecule->v + (0.5*dt*dt/molecule->element->m)*molecule->F;
 
 				//LOG_COUT << "x=" << molecule->x[0] << " x=" << molecule->x[1] << " x=" << molecule->x[2]  << std::endl;
 				if (_periodic_bc) {
@@ -2312,7 +2351,7 @@ public:
 
 				//LOG_COUT << "#v=" << m->v[0] << " a=" << m->a[0] << " a0=" << m->a0[0] << " x=" << m->x[0]  << std::endl;
 
-				m->v += (0.5*dt)*(m->a + m->a0);
+				m->v += (0.5*dt/m->element->m)*(m->F + m->F0);
 				p_mean += m->element->m*m->v;
 
 				++mi;
@@ -2414,7 +2453,7 @@ public:
 				for (std::size_t d = 0; d < DIM; d++) {
 					f << (boost::format(" p%d='%g'") % d % (_molecules[i]->x[d]/unit_length)).str();
 					f << (boost::format(" v%d='%g'") % d % (_molecules[i]->v[d]/unit_length*unit_time)).str();
-					f << (boost::format(" a%d='%g'") % d % (_molecules[i]->a[d]/unit_length*unit_time*unit_time)).str();
+					f << (boost::format(" a%d='%g'") % d % (_molecules[i]->F[d]/_molecules[i]->element->m/unit_length*unit_time*unit_time)).str();
 				}
 				f << " />\n";
 			}
@@ -2548,9 +2587,7 @@ public:
 				p_mean += m->element->m*m->v;
 
 				// set initial acceleration to zero (to be safe)
-				for (std::size_t j = 0; j < DIM; j++) {
-					m->a[j] = 0.0;
-				}
+				std::fill(m->F.begin(), m->F.end(), (T)0);
 
 				// wrap position
 				_cell->wrap_vector(m->x);
@@ -2687,7 +2724,7 @@ public:
 			if (verlet_index(p, index))
 			{
 				// add ghost molecule to list
-				std::size_t gm_index = _ghost_molecules.size();
+				int gm_index = -(int)_ghost_molecules.size();
 				boost::shared_ptr< GhostMolecule<T, DIM> > gm;
 				gm.reset(new GhostMolecule<T, DIM>());
 				gm->t = neighbour_translations[j];
@@ -2696,7 +2733,7 @@ public:
 
 				// add ghost molecule to verlet cell
 				boost::shared_ptr<VerletCell<T, DIM> > v_cell = _vmap->get_cell(index);
-				v_cell->add(gm_index + _ghost_offset);
+				v_cell->add(gm_index);
 			}
 		}
 

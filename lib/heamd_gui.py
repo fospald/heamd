@@ -72,75 +72,75 @@ def hex_to_rgb(value):
 
 
 def savitzky_golay(y, window_size, order, deriv=0, rate=1):
-        r"""Smooth (and optionally differentiate) data with a Savitzky-Golay filter.
-        The Savitzky-Golay filter removes high frequency noise from data.
-        It has the advantage of preserving the original shape and
-        features of the signal better than other types of filtering
-        approaches, such as moving averages techniques.
-        Parameters
-        ----------
-        y : array_like, shape (N,)
-                the values of the time history of the signal.
-        window_size : int
-                the length of the window. Must be an odd integer number.
-        order : int
-                the order of the polynomial used in the filtering.
-                Must be less then `window_size` - 1.
-        deriv: int
-                the order of the derivative to compute (default = 0 means only smoothing)
-        Returns
-        -------
-        ys : ndarray, shape (N)
-                the smoothed signal (or it's n-th derivative).
-        Notes
-        -----
-        The Savitzky-Golay is a type of low-pass filter, particularly
-        suited for smoothing noisy data. The main idea behind this
-        approach is to make for each point a least-square fit with a
-        polynomial of high order over a odd-sized window centered at
-        the point.
-        Examples
-        --------
-        t = np.linspace(-4, 4, 500)
-        y = np.exp( -t**2 ) + np.random.normal(0, 0.05, t.shape)
-        ysg = savitzky_golay(y, window_size=31, order=4)
-        import matplotlib.pyplot as plt
-        plt.plot(t, y, label='Noisy signal')
-        plt.plot(t, np.exp(-t**2), 'k', lw=1.5, label='Original signal')
-        plt.plot(t, ysg, 'r', label='Filtered signal')
-        plt.legend()
-        plt.show()
-        References
-        ----------
-        .. [1] A. Savitzky, M. J. E. Golay, Smoothing and Differentiation of
-           Data by Simplified Least Squares Procedures. Analytical
-           Chemistry, 1964, 36 (8), pp 1627-1639.
-        .. [2] Numerical Recipes 3rd Edition: The Art of Scientific Computing
-           W.H. Press, S.A. Teukolsky, W.T. Vetterling, B.P. Flannery
-           Cambridge University Press ISBN-13: 9780521880688
-        """
-        from math import factorial
+	r"""Smooth (and optionally differentiate) data with a Savitzky-Golay filter.
+	The Savitzky-Golay filter removes high frequency noise from data.
+	It has the advantage of preserving the original shape and
+	features of the signal better than other types of filtering
+	approaches, such as moving averages techniques.
+	Parameters
+	----------
+	y : array_like, shape (N,)
+		the values of the time history of the signal.
+	window_size : int
+		the length of the window. Must be an odd integer number.
+	order : int
+		the order of the polynomial used in the filtering.
+		Must be less then `window_size` - 1.
+	deriv: int
+		the order of the derivative to compute (default = 0 means only smoothing)
+	Returns
+	-------
+	ys : ndarray, shape (N)
+		the smoothed signal (or it's n-th derivative).
+	Notes
+	-----
+	The Savitzky-Golay is a type of low-pass filter, particularly
+	suited for smoothing noisy data. The main idea behind this
+	approach is to make for each point a least-square fit with a
+	polynomial of high order over a odd-sized window centered at
+	the point.
+	Examples
+	--------
+	t = np.linspace(-4, 4, 500)
+	y = np.exp( -t**2 ) + np.random.normal(0, 0.05, t.shape)
+	ysg = savitzky_golay(y, window_size=31, order=4)
+	import matplotlib.pyplot as plt
+	plt.plot(t, y, label='Noisy signal')
+	plt.plot(t, np.exp(-t**2), 'k', lw=1.5, label='Original signal')
+	plt.plot(t, ysg, 'r', label='Filtered signal')
+	plt.legend()
+	plt.show()
+	References
+	----------
+	.. [1] A. Savitzky, M. J. E. Golay, Smoothing and Differentiation of
+	   Data by Simplified Least Squares Procedures. Analytical
+	   Chemistry, 1964, 36 (8), pp 1627-1639.
+	.. [2] Numerical Recipes 3rd Edition: The Art of Scientific Computing
+	   W.H. Press, S.A. Teukolsky, W.T. Vetterling, B.P. Flannery
+	   Cambridge University Press ISBN-13: 9780521880688
+	"""
+	from math import factorial
 
-        try:
-                window_size = np.abs(np.int(window_size))
-                order = np.abs(np.int(order))
-        except ValueError as msg:
-                raise ValueError("window_size and order have to be of type int")
-        if window_size % 2 != 1 or window_size < 1:
-                raise TypeError("window_size size must be a positive odd number")
-        if window_size < order + 2:
-                raise TypeError("window_size is too small for the polynomials order")
-        order_range = range(order+1)
-        half_window = (window_size -1) // 2
-        # precompute coefficients
-        b = np.mat([[k**i for i in order_range] for k in range(-half_window, half_window+1)])
-        m = np.linalg.pinv(b).A[deriv] * rate**deriv * factorial(deriv)
-        # pad the signal at the extremes with
-        # values taken from the signal itself
-        firstvals = y[0] - np.abs( y[1:half_window+1][::-1] - y[0] )
-        lastvals = y[-1] + np.abs(y[-half_window-1:-1][::-1] - y[-1])
-        y = np.concatenate((firstvals, y, lastvals))
-        return np.convolve( m[::-1], y, mode='valid')
+	try:
+		window_size = np.abs(np.int(window_size))
+		order = np.abs(np.int(order))
+	except ValueError as msg:
+		raise ValueError("window_size and order have to be of type int")
+	if window_size % 2 != 1 or window_size < 1:
+		raise TypeError("window_size size must be a positive odd number")
+	if window_size < order + 2:
+		raise TypeError("window_size is too small for the polynomials order")
+	order_range = range(order+1)
+	half_window = (window_size -1) // 2
+	# precompute coefficients
+	b = np.mat([[k**i for i in order_range] for k in range(-half_window, half_window+1)])
+	m = np.linalg.pinv(b).A[deriv] * rate**deriv * factorial(deriv)
+	# pad the signal at the extremes with
+	# values taken from the signal itself
+	firstvals = y[0] - np.abs( y[1:half_window+1][::-1] - y[0] )
+	lastvals = y[-1] + np.abs(y[-half_window-1:-1][::-1] - y[-1])
+	y = np.concatenate((firstvals, y, lastvals))
+	return np.convolve( m[::-1], y, mode='valid')
 
 
 
@@ -712,6 +712,126 @@ def ET_get_vector(el, name):
 
 class PlotWidget(QtWidgets.QWidget):
 
+	def __init__(self, result_xml_root, other = None, parent = None):
+
+		QtWidgets.QWidget.__init__(self, parent)
+		self.setContentsMargins(2, 2, 2, 2)
+
+		self.graphics = pg.GraphicsLayoutWidget()
+
+		self.vbox = QtWidgets.QVBoxLayout()
+		self.vbox.setContentsMargins(2, 2, 2, 2)
+		self.vbox.setSpacing(2)
+
+		self.vbox.addWidget(self.graphics)
+
+		self.setLayout(self.vbox)
+
+	def addPlot(self, *args, **kwargs):
+		plot = self.graphics.addPlot(*args, **kwargs)
+		return plot
+
+	def addSmoothControls(self, plot):
+
+		self.smoothPlot = plot
+		self.smoothSlider = QtWidgets.QSlider()
+		self.smoothSlider.setOrientation(QtCore.Qt.Horizontal)
+		self.smoothSlider.setMinimum(0)
+		self.smoothSlider.setMaximum(100)
+		self.smoothSlider.setTickPosition(QtWidgets.QSlider.TicksBothSides)
+		self.smoothSlider.setTickInterval(1)
+		#self.smoothSlider.sliderMoved.connect(self.smoothSliderChanged)
+		#if (other != None):
+		#	self.smoothSlider.setValue(int(other.smoothSlider.value()*(self.smoothSlider.maximum()+1)/(other.smoothSlider.maximum()+1)))
+		#else:
+		#	self.smoothSlider.setValue(self.smoothSlider.maximum())
+		self.smoothSlider.valueChanged.connect(self.smoothSliderChanged)
+		
+		self.smoothLabel = QtWidgets.QLabel()
+		self.updateTimestepLabel()
+
+		hbox = QtWidgets.QHBoxLayout()
+		hbox.setContentsMargins(5, 5, 5, 5)
+		hbox.addWidget(QtWidgets.QLabel("Smooth:"))
+		hbox.addWidget(self.smoothSlider)
+		hbox.addWidget(self.smoothLabel)
+		self.vbox.addLayout(hbox)
+
+		for item in plot.items:
+			if not isinstance(item, pg.PlotDataItem):
+				continue
+			if item.xData is None:
+				continue
+			item.yDataOrg = item.yData
+
+	def smoothSliderChanged(self):
+		self.updateSmooth()
+		self.updateTimestepLabel()
+
+	def updateTimestepLabel(self):
+		self.smoothLabel.setText("%g" % float(self.smoothSlider.value()))
+
+	def updateSmooth(self):
+
+		smoothWidth = 0.05*self.smoothSlider.value()/float(self.smoothSlider.maximum())
+
+		for item in self.smoothPlot.items:
+			if not isinstance(item, pg.PlotDataItem):
+				continue
+			if item.xData is None:
+				continue
+
+
+			kernel_size = max(1, int(len(item.yDataOrg)*smoothWidth))
+			kernel = np.ones(kernel_size) / kernel_size
+			yNew = np.convolve(item.yDataOrg, kernel, mode='same')
+
+			item.setData(x=item.xData, y=yNew)
+			#item.yData = yNew
+			#item.informViewBoundsChanged()
+			#item.sigPlotChanged.emit(item)
+			#item.curve.show()
+
+		#self.smoothPlot.update()
+		return
+
+	def addCursors(self, plot, xLabel="t"):
+
+		#generate layout
+		label = pg.LabelItem(justify='right')
+		self.graphics.addItem(label, 0, 0)
+
+		#cross hair
+		vLine = pg.InfiniteLine(angle=90, movable=False)
+		hLine = pg.InfiniteLine(angle=0, movable=False)
+		plot.addItem(vLine, ignoreBounds=True)
+		plot.addItem(hLine, ignoreBounds=True)
+
+		def mouseMoved(pos):
+			if plot.sceneBoundingRect().contains(pos):
+				mousePoint = plot.vb.mapSceneToView(pos)
+				x = mousePoint.x()
+				text = "<span style='font-size: 12pt'>%s=%.3g" % (xLabel, x)
+
+				for item in plot.items:
+					if not isinstance(item, pg.PlotDataItem):
+						continue
+					if item.xData is None:
+						continue
+					#print(item.xData, item.yData, item)
+					y = np.interp(x, item.xData, item.yData)
+					text += ",   <span style='color: #%02x%02x%02x'>%s=%.3g</span>" % (*item.opts["pen"], item.opts["name"], y)
+				label.setText(text)
+				vLine.setPos(mousePoint.x())
+				hLine.setPos(mousePoint.y())
+
+		plot.scene().sigMouseMoved.connect(mouseMoved)
+
+		return
+
+
+class ResultWidget(QtWidgets.QWidget):
+
 	def __init__(self, xml, xml_root, resultText, result_xml_root, other = None, parent = None):
 
 		resultText = ""
@@ -831,7 +951,7 @@ class PlotWidget(QtWidgets.QWidget):
 			self.timestepSlider.setValue(self.timestepSlider.maximum())
 		self.timestepSlider.valueChanged.connect(self.timestepSliderChanged)
 		self.timestepLabel = QtWidgets.QLabel()
-		self.timestepLabel.setText("%04d" % self.timestepSlider.value())
+		self.updateTimestepLabel()
 
 		hbox = QtWidgets.QHBoxLayout()
 		hbox.setContentsMargins(5, 5, 5, 5)
@@ -839,7 +959,6 @@ class PlotWidget(QtWidgets.QWidget):
 		hbox.addWidget(self.timestepSlider)
 		hbox.addWidget(self.timestepLabel)
 		vbox.addLayout(hbox)
-
 
 
 		self.ghostCheck = QtWidgets.QCheckBox("show ghosts")
@@ -914,7 +1033,7 @@ class PlotWidget(QtWidgets.QWidget):
 		P = []
 		for ts in self.timesteps:
 			stats = ts.find("stats")
-			time.append(float(ts.attrib['t']));
+			time.append(1e-12*float(ts.attrib['t']));
 			Ekin.append(float(stats.find("Ekin").text));
 			Epot.append(float(stats.find("Epot").text));
 			Etot.append(float(stats.find("Etot").text));
@@ -923,35 +1042,38 @@ class PlotWidget(QtWidgets.QWidget):
 			MV.append(float(stats.find("MV").text));
 
 		"""
-		order = 3
-		T = np.array(T)
-		T = savitzky_golay(T, int(len(T)/5 + order) | 1, order, deriv=0, rate=1)
 		"""
 
 		pg.setConfigOptions(antialias=True)
 
 
-		win = pg.GraphicsLayoutWidget()
+		win = PlotWidget(result_xml_root, other.energy_plot if not other is None else None)
 
 		plot = win.addPlot(xtitle="Energy")
 		plot.setLabel('left', 'Energy', units='eV')
-		plot.setLabel('bottom', 'Time', units='ps')
+		plot.setLabel('bottom', 'Time', units='s')
 		plot.addLegend()
 		plot.plot(time, np.array(Ekin), pen=(255,0,0), name="Ekin")
 		plot.plot(time, np.array(Epot) - Epot[0], pen=(0,255,0), name="Epot")
 		plot.plot(time, np.array(Etot) - Epot[0], pen=(0,0,255), name="Etot")
 		plot.plot(time, np.array(MV), pen=(255,255,255), name="p²/2M")
 
+		win.addCursors(plot)
+		win.addSmoothControls(plot)
+
 		tab.addTab(win, "Energy")
 
 
-		win = pg.GraphicsLayoutWidget()
+		win = PlotWidget(result_xml_root, other.energy_plot if not other is None else None)
 
 		plot = win.addPlot(xtitle="Temperature")
 		plot.setLabel('left', 'Temperature', units='K')
-		plot.setLabel('bottom', 'Time', units='ps')
+		plot.setLabel('bottom', 'Time', units='s')
 		#plot.addLegend()
 		plot.plot(time, np.array(T), pen=(255,255,255), name="T")
+
+		win.addCursors(plot)
+		win.addSmoothControls(plot)
 
 		tab.addTab(win, "Temperature")
 
@@ -960,7 +1082,7 @@ class PlotWidget(QtWidgets.QWidget):
 
 		plot = win.addPlot(xtitle="Impulse")
 		plot.setLabel('left', 'Impulse', units='u*A/ps')
-		plot.setLabel('bottom', 'Time', units='ps')
+		plot.setLabel('bottom', 'Time', units='s')
 		#plot.addLegend()
 		plot.plot(time, np.array(MV), pen=(255,255,255), name="p")
 
@@ -974,7 +1096,7 @@ class PlotWidget(QtWidgets.QWidget):
 
 		plot = win.addPlot(xtitle="Pressure")
 		plot.setLabel('left', 'Pressure', units='bar')
-		plot.setLabel('bottom', 'Time', units='ps')
+		plot.setLabel('bottom', 'Time', units='s')
 		#plot.addLegend()
 		plot.plot(time, np.array(P), pen=(255,255,255), name="P")
 
@@ -1140,6 +1262,9 @@ class PlotWidget(QtWidgets.QWidget):
 
 	def timestepSliderChanged(self):
 		self.updateTimestep()
+		self.updateTimestepLabel()
+
+	def updateTimestepLabel(self):
 		ts = self.timesteps[self.timestepSlider.value()]
 		self.timestepLabel.setText("%g" % float(ts.attrib["t"]))
 
@@ -2580,7 +2705,7 @@ class MainWindow(QtWidgets.QMainWindow):
 	def loadResults(self, resultText):
 		result_xml = ET.fromstring(resultText)
 
-		tab = PlotWidget("", None, resultText, result_xml, None)
+		tab = ResultWidget("", None, resultText, result_xml, None)
 		tab.file_id = self.file_id
 
 		i = self.addTab(tab, "Results")
@@ -2709,7 +2834,7 @@ class MainWindow(QtWidgets.QMainWindow):
 
 		other = self.tabWidget.currentWidget()
 
-		if not isinstance(other, PlotWidget):
+		if not isinstance(other, ResultWidget):
 			other = None
 		elif other.file_id != self.file_id:
 			other = None
@@ -2722,7 +2847,7 @@ class MainWindow(QtWidgets.QMainWindow):
 		#result_xml = ET.parse(result_file).getroot()
 		result_xml = ET.fromstring(resultText)
 
-		tab = PlotWidget(xml, xml_root, resultText, result_xml, other)
+		tab = ResultWidget(xml, xml_root, resultText, result_xml, other)
 		tab.file_id = self.file_id
 
 		i = self.addTab(tab, "Run_%d" % self.runCount)
