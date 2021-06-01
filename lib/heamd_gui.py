@@ -21,6 +21,9 @@ import xml.etree.ElementTree as ET
 import keyword
 import textwrap
 import signal
+import scipy.signal.windows
+import scipy.interpolate
+
 from weakref import WeakKeyDictionary
 
 if not six.PY2:
@@ -731,62 +734,84 @@ class PlotWidget(QtWidgets.QWidget):
 		plot = self.graphics.addPlot(*args, **kwargs)
 		return plot
 
-	def addSmoothControls(self, plot):
+	def addSlider(self, values, title):
 
-		self.smoothPlot = plot
-		self.smoothSlider = QtWidgets.QSlider()
-		self.smoothSlider.setOrientation(QtCore.Qt.Horizontal)
-		self.smoothSlider.setMinimum(0)
-		self.smoothSlider.setMaximum(100)
-		self.smoothSlider.setTickPosition(QtWidgets.QSlider.TicksBothSides)
-		self.smoothSlider.setTickInterval(1)
-		#self.smoothSlider.sliderMoved.connect(self.smoothSliderChanged)
-		#if (other != None):
-		#	self.smoothSlider.setValue(int(other.smoothSlider.value()*(self.smoothSlider.maximum()+1)/(other.smoothSlider.maximum()+1)))
-		#else:
-		#	self.smoothSlider.setValue(self.smoothSlider.maximum())
-		self.smoothSlider.valueChanged.connect(self.smoothSliderChanged)
-		
-		self.smoothLabel = QtWidgets.QLabel()
-		self.updateTimestepLabel()
+		timestepSlider = QtWidgets.QSlider()
+		timestepSlider.setOrientation(QtCore.Qt.Horizontal)
+		timestepSlider.setMinimum(0)
+		timestepSlider.setMaximum(len(values)-1)
+		timestepSlider.setTickPosition(QtWidgets.QSlider.TicksBothSides)
+		timestepSlider.setTickInterval(1)
+		timestepLabel = QtWidgets.QLabel()
+
+		def updateTimestepLabel():
+			timestepLabel.setText("%g" % values[timestepSlider.value()])
+
+		timestepSlider.valueChanged.connect(updateTimestepLabel)
+		updateTimestepLabel()
 
 		hbox = QtWidgets.QHBoxLayout()
 		hbox.setContentsMargins(5, 5, 5, 5)
-		hbox.addWidget(QtWidgets.QLabel("Smooth:"))
-		hbox.addWidget(self.smoothSlider)
-		hbox.addWidget(self.smoothLabel)
+		hbox.addWidget(QtWidgets.QLabel(title + ":"))
+		hbox.addWidget(timestepSlider)
+		hbox.addWidget(timestepLabel)
 		self.vbox.addLayout(hbox)
+
+		return timestepSlider
+
+	def addSmoothControls(self, plot, smoothY=True, smoothX=False):
+
+		self.smoothPlot = plot
+		self.smoothSlider = self.addSlider(range(101), "Smooth")
+		self.smoothSlider.valueChanged.connect(self.smoothSliderChanged)
 
 		for item in plot.items:
 			if not isinstance(item, pg.PlotDataItem):
 				continue
 			if item.xData is None:
 				continue
-			item.yDataOrg = item.yData
+			if smoothX:
+				item.xDataOrg = item.xData
+			if smoothY:
+				item.yDataOrg = item.yData
+
+		return self.smoothSlider
 
 	def smoothSliderChanged(self):
 		self.updateSmooth()
-		self.updateTimestepLabel()
-
-	def updateTimestepLabel(self):
-		self.smoothLabel.setText("%g" % float(self.smoothSlider.value()))
 
 	def updateSmooth(self):
 
-		smoothWidth = 0.05*self.smoothSlider.value()/float(self.smoothSlider.maximum())
+		smoothWidth = self.smoothSlider.value()/float(self.smoothSlider.maximum())
 
 		for item in self.smoothPlot.items:
+			
 			if not isinstance(item, pg.PlotDataItem):
 				continue
+
 			if item.xData is None:
 				continue
 
-
-			kernel_size = max(1, int(len(item.yDataOrg)*smoothWidth))
+			kernel_size = max(1, int(len(item.xData)*smoothWidth))
 			kernel = np.ones(kernel_size) / kernel_size
-			yNew = np.convolve(item.yDataOrg, kernel, mode='same')
 
-			item.setData(x=item.xData, y=yNew)
+			update = False
+
+			if hasattr(item, "yDataOrg"):
+				yNew = np.convolve(item.yDataOrg, kernel, mode='same')
+				update = True
+			else:
+				yNew = item.yData
+
+			if hasattr(item, "xDataOrg"):
+				xNew = np.convolve(item.xDataOrg, kernel, mode='same')
+				update = True
+			else:
+				xNew = item.xData
+
+			if update:
+				item.setData(x=xNew, y=yNew)
+			
 			#item.yData = yNew
 			#item.informViewBoundsChanged()
 			#item.sigPlotChanged.emit(item)
@@ -819,7 +844,8 @@ class PlotWidget(QtWidgets.QWidget):
 					if item.xData is None:
 						continue
 					#print(item.xData, item.yData, item)
-					y = np.interp(x, item.xData, item.yData)
+					f = scipy.interpolate.interp1d(item.xData, item.yData, fill_value='extrapolate')
+					y = f(x)
 					text += ",   <span style='color: #%02x%02x%02x'>%s=%.3g</span>" % (*item.opts["pen"], item.opts["name"], y)
 				label.setText(text)
 				vLine.setPos(mousePoint.x())
@@ -843,7 +869,8 @@ class ResultWidget(QtWidgets.QWidget):
 		self.cell_origin = ET_get_vector(self.cell.find("origin"), "p")
 		self.cell_size = ET_get_vector(self.cell.find("size"), "a")
 		self.cell_center = [self.cell_origin[i] + 0.5*self.cell_size[i] for i in range(3)]
-		
+		self.cell_volume = np.prod(self.cell_size)
+
 		self.element_color_map = {}
 		self.element_size_map = {}
 		elements = result_xml_root.find("elements")
@@ -860,6 +887,7 @@ class ResultWidget(QtWidgets.QWidget):
 
 		molecules = result_xml_root.find("molecules")
 		n = len(molecules)
+		self.N_molecules = n
 		self.size_data0 = np.zeros((n,))
 		self.color_data0 = np.zeros((n, 4))
 		
@@ -1047,7 +1075,7 @@ class ResultWidget(QtWidgets.QWidget):
 		pg.setConfigOptions(antialias=True)
 
 
-		win = PlotWidget(result_xml_root, other.energy_plot if not other is None else None)
+		win = PlotWidget(result_xml_root, None)
 
 		plot = win.addPlot(xtitle="Energy")
 		plot.setLabel('left', 'Energy', units='eV')
@@ -1064,7 +1092,7 @@ class ResultWidget(QtWidgets.QWidget):
 		tab.addTab(win, "Energy")
 
 
-		win = PlotWidget(result_xml_root, other.energy_plot if not other is None else None)
+		win = PlotWidget(result_xml_root, None)
 
 		plot = win.addPlot(xtitle="Temperature")
 		plot.setLabel('left', 'Temperature', units='K')
@@ -1076,6 +1104,160 @@ class ResultWidget(QtWidgets.QWidget):
 		win.addSmoothControls(plot)
 
 		tab.addTab(win, "Temperature")
+
+
+		win = PlotWidget(result_xml_root, None)
+
+		plot = win.addPlot(xtitle="C_V")
+		plot.setLabel('left', 'C_V', units='J/(mol·K)')
+		plot.setLabel('bottom', 'T', units='K')
+		#plot.addLegend()
+		C_V_curve = plot.plot(pen=(255,255,255), name="C_V")
+
+		win.addCursors(plot, xLabel='T')
+		smoothSlider = win.addSmoothControls(plot, smoothY=False, smoothX=False)
+
+		def update_C_V():
+
+			smoothWidth = smoothSlider.value()/float(smoothSlider.maximum())
+
+			# scale to units J/(mol*K)
+			eV = 1.602176634e-19  # J
+			NA = 6.02214076e23 # 1/mol
+			scale = eV*NA/self.N_molecules
+
+			kernel_size = max(1, int(len(T)*smoothWidth))
+			#kernel = np.ones(kernel_size) / kernel_size
+			kernel = scipy.signal.windows.gaussian(kernel_size, kernel_size/5.0)
+			kernel = kernel/np.sum(kernel)
+
+			c = min(len(T), 3)
+			U = Epot
+			Ts = np.convolve(T[c:-c], kernel, mode='valid')
+			Us = np.convolve(U[c:-c], kernel, mode='valid')
+
+			dU = np.diff(Us)
+			dT = np.diff(Ts)
+			C_V = scale*dU/dT
+
+			"""
+			order = 3
+			window_size = max(2*order + 1, 2*int(len(T)*smoothWidth*0.5) + 1)
+			print(window_size)
+			dU = savitzky_golay(np.array(Epot), window_size, order, deriv=1, rate=1)
+			dT = savitzky_golay(np.array(T), window_size, order, deriv=1, rate=1)
+			Ts = savitzky_golay(np.array(T), window_size, order, deriv=0, rate=1)
+			C_V = scale*dU/dT
+			"""
+
+			C_V_curve.setData(x=Ts[0:len(C_V)], y=C_V)
+
+		smoothSlider.valueChanged.connect(update_C_V)
+		update_C_V()
+
+		tab.addTab(win, "C_V")
+
+
+
+
+		# Radial distribution function plot
+
+		win = PlotWidget(result_xml_root, None)
+
+		plot = win.addPlot(xtitle="RDF")
+		plot.setLabel('left', 'RDF', units='')
+		plot.setLabel('bottom', 'r/a', units='')
+		#plot.addLegend()
+		RDF_curve = plot.plot(pen=(255,255,255), name="RDF")
+
+		win.addCursors(plot, xLabel='r/a')
+		timeSlider = win.addSlider(time, "Time")
+		smoothSlider = win.addSmoothControls(plot, smoothY=False, smoothX=False)
+		nSlider = win.addSlider(range(1,101), "N")
+
+		def update_RDF_smooth():
+
+			smoothWidth = smoothSlider.value()/float(smoothSlider.maximum())
+
+			kernel_size = max(1, int(len(win.rdf)*smoothWidth))
+			kernel = scipy.signal.windows.gaussian(kernel_size, kernel_size/8.0)
+			kernel = kernel/np.sum(kernel)
+
+			rdf = np.convolve(win.rdf, kernel, mode='same')
+
+			RDF_curve.setData(x=win.rdf_r, y=rdf)
+
+		def update_RDF():
+
+			ts = self.timesteps[timeSlider.value()]
+			molecules = ts.find("molecules")
+			ghost_molecules = ts.find("ghost_molecules")
+
+			x = np.zeros((len(molecules), 3))
+			xg = np.zeros((len(ghost_molecules), 3))
+
+			a = max(self.cell_size)
+			rc = a	# cutoff distance
+
+			# add molecules
+			for i, m in enumerate(molecules):
+				x[i,:] = ET_get_vector(m, "p")
+				el = m.get("element")
+
+			# add ghost molecules
+			offset = len(molecules)
+			for i, gm in enumerate(ghost_molecules):
+				mi = int(gm.get("m"))	# molecule index
+				t = np.array(ET_get_vector(gm, "t"))
+				xg[i,:] = x[mi,:] + t
+
+			res = win.size().width()
+			r = np.linspace(0, rc, res)
+			rdf = np.zeros_like(r)
+			sigma = 1.0/res*rc
+			sigma2 = sigma**2
+			n = 0
+
+			def addPair(x0, x1):
+				nonlocal rdf, n
+				i = int(np.round(res*np.linalg.norm(x1 - x0)/rc))
+				if i >= rdf.shape[0]:
+					return
+				rdf[i] += 1
+				n += 1
+
+			for i in range(x.shape[0]):
+				for j in range(x.shape[0]):
+					if i == j:
+						continue
+					addPair(x[i,:], x[j,:]);
+				for j in range(xg.shape[0]):
+					addPair(x[i,:], xg[j,:]);
+
+				if n > x.shape[0]*(x.shape[0] + xg.shape[0])*nSlider.value()/100:
+					break
+
+			# normalize
+			# https://en.wikipedia.org/wiki/Radial_distribution_function
+			r /= a
+			rdf[1:] /= r[1:]**2
+			rdf /= np.sum(rdf)*(r[1]-r[0])
+
+			win.rdf_r = r
+			win.rdf = rdf
+
+			update_RDF_smooth()
+
+		timeSlider.valueChanged.connect(update_RDF)
+		timeSlider.setTracking(False)
+		nSlider.valueChanged.connect(update_RDF)
+		nSlider.setTracking(False)
+		smoothSlider.valueChanged.connect(update_RDF_smooth)
+		update_RDF()
+
+		tab.addTab(win, "RDF")
+
+
 
 		"""
 		win = pg.GraphicsLayoutWidget()
