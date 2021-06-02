@@ -713,6 +713,18 @@ def ET_get_vector(el, name):
 	return [float(el.get(name + str(i))) for i in range(3)]
 
 
+def smoothFunction(x, strength):
+	kernel_size = 2*int(0.5*len(x)*strength) + 1
+	kernel = scipy.signal.windows.gaussian(kernel_size, kernel_size/9.0)
+	kernel = kernel/np.sum(kernel)
+	y = np.convolve(x, kernel, mode='same')
+	gain = np.convolve(np.ones_like(x), kernel, mode='same')
+	y /= gain
+	#sos = scipy.signal.butter(4, 1 - strength, output='sos')
+	#y = scipy.signal.sosfiltfilt(sos, x)
+	return y
+
+
 class PlotWidget(QtWidgets.QWidget):
 
 	def __init__(self, result_xml_root, other = None, parent = None):
@@ -792,19 +804,16 @@ class PlotWidget(QtWidgets.QWidget):
 			if item.xData is None:
 				continue
 
-			kernel_size = max(1, int(len(item.xData)*smoothWidth))
-			kernel = np.ones(kernel_size) / kernel_size
-
 			update = False
 
 			if hasattr(item, "yDataOrg"):
-				yNew = np.convolve(item.yDataOrg, kernel, mode='same')
+				yNew = smoothFunction(item.yDataOrg, smoothWidth)
 				update = True
 			else:
 				yNew = item.yData
 
 			if hasattr(item, "xDataOrg"):
-				xNew = np.convolve(item.xDataOrg, kernel, mode='same')
+				xNew = smoothFunction(item.xDataOrg, smoothWidth)
 				update = True
 			else:
 				xNew = item.xData
@@ -1115,26 +1124,20 @@ class ResultWidget(QtWidgets.QWidget):
 		C_V_curve = plot.plot(pen=(255,255,255), name="C_V")
 
 		win.addCursors(plot, xLabel='T')
-		smoothSlider = win.addSmoothControls(plot, smoothY=False, smoothX=False)
+		smoothSlider_C_V = win.addSmoothControls(plot, smoothY=False, smoothX=False)
 
 		def update_C_V():
 
-			smoothWidth = smoothSlider.value()/float(smoothSlider.maximum())
+			smoothWidth = max(1, smoothSlider_C_V.value())/float(smoothSlider_C_V.maximum())
 
 			# scale to units J/(mol*K)
 			eV = 1.602176634e-19  # J
 			NA = 6.02214076e23 # 1/mol
 			scale = eV*NA/self.N_molecules
 
-			kernel_size = max(1, int(len(T)*smoothWidth))
-			#kernel = np.ones(kernel_size) / kernel_size
-			kernel = scipy.signal.windows.gaussian(kernel_size, kernel_size/5.0)
-			kernel = kernel/np.sum(kernel)
-
-			c = min(len(T), 3)
 			U = Epot
-			Ts = np.convolve(T[c:-c], kernel, mode='valid')
-			Us = np.convolve(U[c:-c], kernel, mode='valid')
+			Ts = smoothFunction(T, smoothWidth)
+			Us = smoothFunction(U, smoothWidth)
 
 			dU = np.diff(Us)
 			dT = np.diff(Ts)
@@ -1152,7 +1155,7 @@ class ResultWidget(QtWidgets.QWidget):
 
 			C_V_curve.setData(x=Ts[0:len(C_V)], y=C_V)
 
-		smoothSlider.valueChanged.connect(update_C_V)
+		smoothSlider_C_V.valueChanged.connect(update_C_V)
 		update_C_V()
 
 		tab.addTab(win, "C_V")
@@ -1171,25 +1174,23 @@ class ResultWidget(QtWidgets.QWidget):
 		RDF_curve = plot.plot(pen=(255,255,255), name="RDF")
 
 		win.addCursors(plot, xLabel='r/a')
-		timeSlider = win.addSlider(time, "Time")
-		smoothSlider = win.addSmoothControls(plot, smoothY=False, smoothX=False)
-		nSlider = win.addSlider(range(1,101), "N")
+		timeSlider_RDF = win.addSlider(time, "Time")
+		timeSlider_RDF.setTracking(False)
+		smoothSlider_RDF = win.addSmoothControls(plot, smoothY=False, smoothX=False)
+		nSlider_RDF = win.addSlider(range(1,101), "N")
+		nSlider_RDF.setTracking(False)
 
 		def update_RDF_smooth():
 
-			smoothWidth = smoothSlider.value()/float(smoothSlider.maximum())
+			smoothWidth = smoothSlider_RDF.value()/float(smoothSlider_RDF.maximum())
 
-			kernel_size = max(1, int(len(win.rdf)*smoothWidth))
-			kernel = scipy.signal.windows.gaussian(kernel_size, kernel_size/8.0)
-			kernel = kernel/np.sum(kernel)
-
-			rdf = np.convolve(win.rdf, kernel, mode='same')
+			rdf = smoothFunction(win.rdf, smoothWidth)
 
 			RDF_curve.setData(x=win.rdf_r, y=rdf)
 
 		def update_RDF():
 
-			ts = self.timesteps[timeSlider.value()]
+			ts = self.timesteps[timeSlider_RDF.value()]
 			molecules = ts.find("molecules")
 			ghost_molecules = ts.find("ghost_molecules")
 
@@ -1234,7 +1235,7 @@ class ResultWidget(QtWidgets.QWidget):
 				for j in range(xg.shape[0]):
 					addPair(x[i,:], xg[j,:]);
 
-				if n > x.shape[0]*(x.shape[0] + xg.shape[0])*nSlider.value()/100:
+				if n > x.shape[0]*(x.shape[0] + xg.shape[0])*nSlider_RDF.value()/100:
 					break
 
 			# normalize
@@ -1248,11 +1249,9 @@ class ResultWidget(QtWidgets.QWidget):
 
 			update_RDF_smooth()
 
-		timeSlider.valueChanged.connect(update_RDF)
-		timeSlider.setTracking(False)
-		nSlider.valueChanged.connect(update_RDF)
-		nSlider.setTracking(False)
-		smoothSlider.valueChanged.connect(update_RDF_smooth)
+		timeSlider_RDF.valueChanged.connect(update_RDF)
+		nSlider_RDF.valueChanged.connect(update_RDF)
+		smoothSlider_RDF.valueChanged.connect(update_RDF_smooth)
 		update_RDF()
 
 		tab.addTab(win, "RDF")

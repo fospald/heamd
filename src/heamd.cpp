@@ -2146,6 +2146,8 @@ public:
 		f << "<results>\n";
 
 		f << "\t<dim>" << DIM << "</dim>\n";
+		f << "\t<nn_radius>" << _nn_radius << "</nn_radius>\n";
+		f << "\t<lattice_multiplier>" << _lattice_multiplier << "</lattice_multiplier>\n";
 		
 		f << "\t<cell>\n";
 		f << "\t\t<type>" << _cell_type << "</type>\n";
