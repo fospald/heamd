@@ -62,6 +62,9 @@ try:
 	import pyqtgraph.opengl as gl
 	from OpenGL.GL import *
 
+	pg.setConfigOption('background', 'w')
+	pg.setConfigOption('foreground', 'k')
+
 except BaseException as e:
 	print(str(e))
 	print("Make sure you have the scipy, numpy, matplotlib, pyqtgraph, pyqtgraph.opengl, pyqt5 and pyqt5-webengine packages for Python%d installed!" % sys.version_info[0])
@@ -836,8 +839,9 @@ class PlotWidget(QtWidgets.QWidget):
 		self.graphics.addItem(label, 0, 0)
 
 		#cross hair
-		vLine = pg.InfiniteLine(angle=90, movable=False)
-		hLine = pg.InfiniteLine(angle=0, movable=False)
+		pen = pg.mkPen('k', width=1, style=QtCore.Qt.DashLine)
+		vLine = pg.InfiniteLine(angle=90, movable=False, pen=pen)
+		hLine = pg.InfiniteLine(angle=0, movable=False, pen=pen)
 		plot.addItem(vLine, ignoreBounds=True)
 		plot.addItem(hLine, ignoreBounds=True)
 
@@ -872,6 +876,8 @@ class ResultWidget(QtWidgets.QWidget):
 		resultText = ""
 
 		self.dim = int(result_xml_root.find("dim").text)
+		self.lattice_multiplier = float(result_xml_root.find("lattice_multiplier").text)
+		self.nn_radius = float(result_xml_root.find("nn_radius").text)
 		self.timesteps = result_xml_root.find("timesteps")
 		self.cell = result_xml_root.find("cell")
 		self.cell_type = self.cell.get("type")
@@ -1089,11 +1095,12 @@ class ResultWidget(QtWidgets.QWidget):
 		plot = win.addPlot(xtitle="Energy")
 		plot.setLabel('left', 'Energy', units='eV')
 		plot.setLabel('bottom', 'Time', units='s')
-		plot.addLegend()
+		plot.addLegend(offset=(-50, 50), colCount=1)
+		plot.showGrid(x=True, y=True)
 		plot.plot(time, np.array(Ekin), pen=(255,0,0), name="Ekin")
 		plot.plot(time, np.array(Epot) - Epot[0], pen=(0,255,0), name="Epot")
 		plot.plot(time, np.array(Etot) - Epot[0], pen=(0,0,255), name="Etot")
-		plot.plot(time, np.array(MV), pen=(255,255,255), name="p²/2M")
+		plot.plot(time, np.array(MV), pen=(255,0, 255), name="p²/2M")
 
 		win.addCursors(plot)
 		win.addSmoothControls(plot)
@@ -1107,7 +1114,8 @@ class ResultWidget(QtWidgets.QWidget):
 		plot.setLabel('left', 'Temperature', units='K')
 		plot.setLabel('bottom', 'Time', units='s')
 		#plot.addLegend()
-		plot.plot(time, np.array(T), pen=(255,255,255), name="T")
+		plot.showGrid(x=True, y=True)
+		plot.plot(time, np.array(T), pen=(0,0,255), name="T")
 
 		win.addCursors(plot)
 		win.addSmoothControls(plot)
@@ -1121,10 +1129,12 @@ class ResultWidget(QtWidgets.QWidget):
 		plot.setLabel('left', 'C_V', units='J/(mol·K)')
 		plot.setLabel('bottom', 'T', units='K')
 		#plot.addLegend()
-		C_V_curve = plot.plot(pen=(255,255,255), name="C_V")
+		plot.showGrid(x=True, y=True)
+		C_V_curve = plot.plot(pen=(0,0,255), name="C_V")
 
 		win.addCursors(plot, xLabel='T')
 		smoothSlider_C_V = win.addSmoothControls(plot, smoothY=False, smoothX=False)
+		smoothSlider_C_V.setValue(30)
 
 		def update_C_V():
 
@@ -1171,7 +1181,8 @@ class ResultWidget(QtWidgets.QWidget):
 		plot.setLabel('left', 'RDF', units='')
 		plot.setLabel('bottom', 'r/a', units='')
 		#plot.addLegend()
-		RDF_curve = plot.plot(pen=(255,255,255), name="RDF")
+		plot.showGrid(x=True, y=True)
+		RDF_curve = plot.plot(pen=(0,0,255), name="RDF")
 
 		win.addCursors(plot, xLabel='r/a')
 		timeSlider_RDF = win.addSlider(time, "Time")
@@ -1198,7 +1209,7 @@ class ResultWidget(QtWidgets.QWidget):
 			xg = np.zeros((len(ghost_molecules), 3))
 
 			a = max(self.cell_size)
-			rc = a	# cutoff distance
+			rc = self.nn_radius	# cutoff distance
 
 			# add molecules
 			for i, m in enumerate(molecules):
@@ -1219,7 +1230,10 @@ class ResultWidget(QtWidgets.QWidget):
 			sigma2 = sigma**2
 			n = 0
 
+			print("rc=", rc)
+
 			def addPair(x0, x1):
+				print("add", x0, x1)
 				nonlocal rdf, n
 				i = int(np.round(res*np.linalg.norm(x1 - x0)/rc))
 				if i >= rdf.shape[0]:
@@ -1240,10 +1254,15 @@ class ResultWidget(QtWidgets.QWidget):
 
 			# normalize
 			# https://en.wikipedia.org/wiki/Radial_distribution_function
-			r /= a
+			print("ok")
+			print(r)
+			print(rdf)
+			r /= a/self.lattice_multiplier
 			rdf[1:] /= r[1:]**2
 			rdf /= np.sum(rdf)*(r[1]-r[0])
 
+			print(r)
+			print(rdf)
 			win.rdf_r = r
 			win.rdf = rdf
 

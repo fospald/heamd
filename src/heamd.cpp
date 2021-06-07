@@ -254,7 +254,7 @@ std::ostream& operator<<(std::ostream& os, const TTYOnly& tto)
 
 #define unit_mass	1.6605390666050e-27 // kg
 #define unit_length	1e-10 // m
-#define unit_time	1e-13 // s
+#define unit_time	1e-12 // s
 #define unit_T	1.0 // K
 #define unit_p	1.0e5 // Pa
 #define unit_energy  1.602176634e-19 // J (= 1eV)
@@ -1689,6 +1689,283 @@ public:
 		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules) = 0;
 };
 
+
+template <typename T, int DIM>
+class EmbeddedAtomPotential : public PairPotential<T, DIM>
+{
+public:
+	typedef struct
+	{
+		T re, fe, rhoe, rhos, alpha, beta, A, B, cai, ramda, Fi0, Fi1, Fi2, Fi3, Fm0, Fm1, Fm2, Fm3, fnn, Fn;
+		T ielement, amass, Fm4, beta1, ramda1, rhol, rhoh;
+		T blat, rhoin, rhoout;
+	} ElementParams;
+
+	typedef std::map<std::string, boost::shared_ptr<ElementParams> > ParamMap;
+	
+	ParamMap _param_map;
+
+
+	void addElement(std::string element_name, boost::shared_ptr<ElementParams> params)
+	{
+		// the units in the file are Angstrom and eV and need to be converted to SI units
+		params->re *= unit_length;
+		params->A *= unit_energy;
+		params->B *= unit_energy;
+		params->Fi0 *= unit_energy;
+		params->Fi1 *= unit_energy;
+		params->Fi2 *= unit_energy;
+		params->Fi3 *= unit_energy;
+		params->Fm0 *= unit_energy;
+		params->Fm1 *= unit_energy;
+		params->Fm2 *= unit_energy;
+		params->Fm3 *= unit_energy;
+		params->Fm4 *= unit_energy;
+		params->Fn *= unit_energy;
+
+		params->blat = std::sqrt(2.0)*params->re;
+		params->rhoin = params->rhol*params->rhoe;
+		params->rhoout = params->rhoh*params->rhoe;
+
+		_param_map.insert(typename ParamMap::value_type(element_name, params));
+		LOG_COUT << "eam " << element_name << std::endl;
+
+		if (params->ramda != params->ramda1) {
+			LOG_COUT << "ramda " << element_name << std::endl;
+		}
+	}
+
+	void readSettings(const ptree::ptree& pt)
+	{
+		std::string filename = "../../data/eam_database/parameters";
+		boost::filesystem::ifstream fh(filename);
+		std::string line;
+		std::string element_name;
+		std::size_t iparam = 0;
+		std::size_t num_params = 27;
+		boost::shared_ptr<ElementParams> params;
+
+		while (std::getline(fh, line))
+		{
+			if (line.length() == 0)
+				continue;
+
+			if (std::isalpha(line[0])) {
+				if (iparam == num_params) {
+					addElement(element_name, params);
+				}
+				params.reset(new ElementParams());
+				element_name = line;
+				iparam = 0;
+				continue;
+			}
+			
+			T* params_ptr = (T*) params.get();
+			params_ptr[iparam] = boost::lexical_cast<T>(line);
+
+			iparam++;
+		}
+
+		if (iparam == num_params) {
+			addElement(element_name, params);
+		}
+	}
+
+	inline T densFunc(T r, T b, T c)
+	{
+		return std::exp(-b*(r - 1.0)) / (1.0 + std::pow(std::max((T)0, r - c), 20.0));
+	}
+
+	inline T ddensFunc(T r, T b, T c)
+	{
+		return -densFunc(r, b, c) * (b + (r > c ? (20*std::pow(r - c, 19.0) / (1.0 + std::pow(std::max((T)0, r - c), 20.0))) : 0));
+	}
+
+	void compute(
+		std::size_t mi,
+		const std::vector<std::size_t>& nn_indices,
+		const std::vector<int>& nmolecule_indices,
+		const std::vector<T>& dist2,
+		const std::vector< ublas::c_vector<T, DIM> >& dir,
+		std::vector< boost::shared_ptr< Molecule<T, DIM> > >& molecules,
+		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules)
+	{
+		static const T param_epsilon = 33.147 * 1e-3 * const_eV; // J
+		static const T param_n = 7;
+		static const T param_m = 6; //
+		static const T param_c = 16.399;
+		static const T param_a = 4.05 * unit_length; // m
+
+
+		//LOG_COUT << "compute" << std::endl;
+
+
+		//LOG_COUT << "nn " << (*nn) << std::endl;
+
+		// potential energy
+
+
+		boost::shared_ptr<ElementParams> p = _param_map[molecules[mi]->element->id];
+
+		//LOG_COUT << "mi: " << mi << std::endl;
+		
+		T sum_phi = 0, rho = 0;
+		auto nn = nn_indices.begin();
+		while (nn != nn_indices.end())
+		{
+			int mi0 = nmolecule_indices[*nn];
+
+			if (mi0 < 0) {
+				mi0 = gmolecules[-mi0]->molecule_index;
+			}
+
+			boost::shared_ptr<ElementParams> p0 = _param_map[molecules[mi0]->element->id];
+
+			T r = std::sqrt(dist2[*nn]);
+
+			//LOG_COUT << "nn " << (*nn) << " r: " << r << std::endl;
+
+			T r_by_re = r/p->re;
+			T r_by_re0 = r/p0->re;
+
+			// electron density
+			rho += p0->fe*this->densFunc(r_by_re0, p0->beta, p0->ramda1);
+
+			// pair potential sum
+
+			T da = this->densFunc(r_by_re0, p0->beta, p0->ramda);
+			T fa = p0->fe*da;
+			T phi_aa = p0->A*this->densFunc(r_by_re0, p0->alpha, p0->cai) - p0->B*da;
+
+			T db = this->densFunc(r_by_re, p->beta, p->ramda);
+			T fb = p->fe*db;
+			T phi_bb = p->A*this->densFunc(r_by_re, p->alpha, p->cai) - p->B*db;
+
+			sum_phi += 0.5*(fb/fa*phi_aa + fa/fb*phi_bb);
+
+			
+			++nn;
+		}
+
+		//LOG_COUT << "rho: " << rho << " rhoe: " << p->rhoe << std::endl;
+
+		// embedding energy
+		T FE;
+		if (rho < p->rhoin) {
+			T c = rho/p->rhoin - 1.0;
+			FE = p->Fi0 + c*(p->Fi1 + c*(p->Fi2 + c*p->Fi3));
+		}
+		else if (rho < p->rhoout)
+		{
+			T Fm33 = (rho < p->rhoe) ? p->Fm3 : p->Fm4;
+			T c = rho/p->rhoe - 1.0;
+			FE = p->Fm0 + c*(p->Fm1 + c*(p->Fm2 + c*Fm33));
+		}
+		else {
+			T c = rho/p->rhos;
+			FE = p->Fn*(1.0 - p->fnn*std::log(c))*std::pow(c, p->fnn);
+		}
+
+		//LOG_COUT << "U: " << sum_phi  << " " << FE << std::endl;
+
+		// EAM potential
+		molecules[mi]->U = 0.5*sum_phi + FE;
+
+	
+		// accelerations
+
+		ublas::c_vector<T, DIM> F;
+		ublas::c_vector<T, DIM> F_sum;
+
+		std::fill(F_sum.begin(), F_sum.end(), (T)0);
+
+		nn = nn_indices.begin();
+		while (nn != nn_indices.end())
+		{
+			// compute potential gradient w.r.t. molecules[nn]->x
+
+			int mi0 = nmolecule_indices[*nn];
+
+			if (mi0 < 0) {
+				mi0 = gmolecules[-mi0]->molecule_index;
+			}
+
+			boost::shared_ptr<ElementParams> p0 = _param_map[molecules[mi0]->element->id];
+
+			T r = std::sqrt(dist2[*nn]);
+
+			T r_by_re = r/p->re;
+			T dr_by_re = 1.0/p->re;
+			T r_by_re0 = r/p0->re;
+			T dr_by_re0 = 1.0/p0->re;
+
+			// electron density
+			T drho = p0->fe*this->ddensFunc(r_by_re0, p0->beta, p0->ramda1)*dr_by_re0;
+
+			// pair potential sum
+
+			T da = this->densFunc(r_by_re0, p0->beta, p0->ramda);
+			T dda = this->ddensFunc(r_by_re0, p0->beta, p0->ramda)*dr_by_re0;
+			T fa = p0->fe*da;
+			T dfa = p0->fe*dda;
+			T phi_aa = p0->A*this->densFunc(r_by_re0, p0->alpha, p0->cai) - p0->B*da;
+			T dphi_aa = p0->A*this->ddensFunc(r_by_re0, p0->alpha, p0->cai)*dr_by_re0 - p0->B*dda;
+
+			T db = this->densFunc(r_by_re, p->beta, p->ramda);
+			T ddb = this->ddensFunc(r_by_re, p->beta, p->ramda)*dr_by_re;
+			T fb = p->fe*db;
+			T dfb = p->fe*ddb;
+			T phi_bb = p->A*this->densFunc(r_by_re, p->alpha, p->cai) - p->B*db;
+			T dphi_bb = p->A*this->ddensFunc(r_by_re, p->alpha, p->cai)*dr_by_re - p->B*ddb;
+
+			T dsum_phi = 0.5*(dfb/fa*phi_aa + dfa/fb*phi_bb + fb/fa*dphi_aa + fa/fb*dphi_bb - dfa*fb/(fa*fa)*phi_aa - fa*dfb/(fb*fb)*phi_bb);
+
+			T dFE;
+
+			if (rho < p->rhoin) {
+				T c = rho/p->rhoin - 1.0;
+				T dc = drho/p->rhoin;
+				dFE = dc*(p->Fi1 + c*(2*p->Fi2 + c*(3*p->Fi3)));
+			}
+			else if (rho < p->rhoout)
+			{
+				T Fm33 = (rho < p->rhoe) ? p->Fm3 : p->Fm4;
+				T c = rho/p->rhoe - 1.0;
+				T dc = drho/p->rhoe;
+				dFE = dc*(p->Fm1 + c*(2*p->Fm2 + c*(3*Fm33)));
+			}
+			else {
+				T c = rho/p->rhos;
+				T dc = drho/p->rhos;
+				dFE = dc*(-p->Fn*p->fnn*p->fnn*std::log(c)*std::pow(c, p->fnn-1));
+			}
+
+
+			F = (-(0.5*dsum_phi + dFE)/r)*dir[*nn];
+
+
+			//LOG_COUT << "F: " << F[0] << " " << F[1] << " " << F[2]  << " " << mi0 << std::endl;
+
+			#pragma omp critical
+			molecules[mi0]->F += F;
+
+			F_sum += F;
+
+			++nn;
+		}
+
+		// accelleration (-1/m*dU/dx_m)
+		#pragma omp critical
+		molecules[mi]->F -= F_sum;
+
+		//LOG_COUT << "." << std::endl;
+
+		//LOG_COUT << "a " << a[0] << " " << a[1] << " " << a[2] << std::endl;
+	}
+};
+
+
+
 template <typename T, int DIM>
 class SuttonChenPotential : public PairPotential<T, DIM>
 {
@@ -1833,7 +2110,7 @@ public:
 	MDSolver()
 	{
 		_cell_type = "cubic";
-		_potential_type = "sutton-chen";
+		_potential_type = "embedded-atom";
 		_nn_radius = -1.0;
 		_nn_radius2 = 1.0;
 		_nn_levels = 1.0;
@@ -1890,7 +2167,8 @@ public:
 		// read the cell
 
 		const ptree::ptree& cell = pt.get_child("cell", empty_ptree);
-		_cell_type = pt_get<std::string>(cell, "type", _cell_type);
+		const ptree::ptree& cell_attr = cell.get_child("<xmlattr>", empty_ptree);
+		_cell_type = pt_get<std::string>(cell_attr, "type", _cell_type);
 
 		if (_cell_type == "cubic") {
 			_cell.reset(new CubicUnitCell<T, DIM>());
@@ -1905,10 +2183,14 @@ public:
 		// read the potential
 
 		const ptree::ptree& potential = pt.get_child("potential", empty_ptree);
-		_potential_type = pt_get<std::string>(potential, "type", _potential_type);
+		const ptree::ptree& potential_attr = potential.get_child("<xmlattr>", empty_ptree);
+		_potential_type = pt_get<std::string>(potential_attr, "type", _potential_type);
 
 		if (_potential_type == "sutton-chen") {
 			_potential.reset(new SuttonChenPotential<T, DIM>());
+		}
+		else if (_potential_type == "embedded-atom") {
+			_potential.reset(new EmbeddedAtomPotential<T, DIM>());
 		}
 		else {
 			BOOST_THROW_EXCEPTION(std::runtime_error((boost::format("Unknown potential type '%s'") % _potential_type).str()));
@@ -2103,6 +2385,10 @@ public:
 				bool do_store = std::ceil((t - tB) / (tE - tB) * _store_number) >
 					std::ceil((last_store - tB) / (tE - tB) * _store_number);
 				//if (istep % _store_interval == 0 || last_timestep) {
+				if (_store_interval > 0 && istep % _store_interval == 0) {
+					do_store = true;
+				}
+
 				if (do_store) {
 					write_timestep(istep, t, Tp, p, f);
 					last_store = t;
@@ -2146,7 +2432,7 @@ public:
 		f << "<results>\n";
 
 		f << "\t<dim>" << DIM << "</dim>\n";
-		f << "\t<nn_radius>" << _nn_radius << "</nn_radius>\n";
+		f << "\t<nn_radius>" << (_nn_radius/unit_length) << "</nn_radius>\n";
 		f << "\t<lattice_multiplier>" << _lattice_multiplier << "</lattice_multiplier>\n";
 		
 		f << "\t<cell>\n";
