@@ -712,8 +712,8 @@ class GLMultiMeshItem(gl.GLMeshItem):
 		"""
 
 
-def ET_get_vector(el, name):
-	return [float(el.get(name + str(i))) for i in range(3)]
+def ET_get_vector(el, name, dim):
+	return [float(el.get(name + str(i))) for i in range(dim)]
 
 
 def smoothFunction(x, strength):
@@ -881,9 +881,12 @@ class ResultWidget(QtWidgets.QWidget):
 		self.timesteps = result_xml_root.find("timesteps")
 		self.cell = result_xml_root.find("cell")
 		self.cell_type = self.cell.get("type")
-		self.cell_origin = ET_get_vector(self.cell.find("origin"), "p")
-		self.cell_size = ET_get_vector(self.cell.find("size"), "a")
-		self.cell_center = [self.cell_origin[i] + 0.5*self.cell_size[i] for i in range(3)]
+		self.cell_origin = ET_get_vector(self.cell.find("origin"), "p", self.dim)
+		self.cell_origin3 = self.cell_origin + [0.0]*(3 - self.dim)
+		self.cell_size = ET_get_vector(self.cell.find("size"), "a", self.dim)
+		self.cell_size3 = self.cell_size + [0.0]*(3 - self.dim)
+		self.cell_center = [self.cell_origin[i] + 0.5*self.cell_size[i] for i in range(self.dim)]
+		self.cell_center3 = self.cell_center + [0.0]*(3 - self.dim)
 		self.cell_volume = np.prod(self.cell_size)
 
 		self.element_color_map = {}
@@ -1034,11 +1037,11 @@ class ResultWidget(QtWidgets.QWidget):
 
 		self.rve_view = gl.GLViewWidget()
 		self.rve_view.show()
-		self.rve_view.setCameraPosition(pos=QtGui.QVector3D(*self.cell_center), distance=2*max(self.cell_size), azimuth=-90)
+		self.rve_view.setCameraPosition(pos=QtGui.QVector3D(*self.cell_center3), distance=2*max(self.cell_size), azimuth=-90)
 
 		q = GLBoxItem()
-		q.scale(*self.cell_size)
-		q.translate(*self.cell_origin)
+		q.scale(*self.cell_size3)
+		q.translate(*self.cell_origin3)
 		self.rve_view.addItem(q)
 
 
@@ -1073,10 +1076,12 @@ class ResultWidget(QtWidgets.QWidget):
 		Etot = []
 		MV = []
 		T = []
+		T_control = []
 		P = []
 		for ts in self.timesteps:
 			stats = ts.find("stats")
 			time.append(1e-12*float(ts.attrib['t']));
+			T_control.append(float(ts.attrib['T']));
 			Ekin.append(float(stats.find("Ekin").text));
 			Epot.append(float(stats.find("Epot").text));
 			Etot.append(float(stats.find("Etot").text));
@@ -1116,6 +1121,7 @@ class ResultWidget(QtWidgets.QWidget):
 		#plot.addLegend()
 		plot.showGrid(x=True, y=True)
 		plot.plot(time, np.array(T), pen=(0,0,255), name="T")
+		plot.plot(time, np.array(T_control), pen=(0,255,0), name="T control")
 
 		win.addCursors(plot)
 		win.addSmoothControls(plot)
@@ -1213,15 +1219,15 @@ class ResultWidget(QtWidgets.QWidget):
 
 			# add molecules
 			for i, m in enumerate(molecules):
-				x[i,:] = ET_get_vector(m, "p")
+				x[i,0:self.dim] = ET_get_vector(m, "p", self.dim)
 				el = m.get("element")
 
 			# add ghost molecules
 			offset = len(molecules)
 			for i, gm in enumerate(ghost_molecules):
 				mi = int(gm.get("m"))	# molecule index
-				t = np.array(ET_get_vector(gm, "t"))
-				xg[i,:] = x[mi,:] + t
+				t = np.array(ET_get_vector(gm, "t", self.dim))
+				xg[i,0:self.dim] = x[mi,0:self.dim] + t
 
 			res = win.size().width()
 			r = np.linspace(0, rc, res)
@@ -1230,10 +1236,10 @@ class ResultWidget(QtWidgets.QWidget):
 			sigma2 = sigma**2
 			n = 0
 
-			print("rc=", rc)
+			#print("rc=", rc)
 
 			def addPair(x0, x1):
-				print("add", x0, x1)
+				#print("add", x0, x1)
 				nonlocal rdf, n
 				i = int(np.round(res*np.linalg.norm(x1 - x0)/rc))
 				if i >= rdf.shape[0]:
@@ -1254,15 +1260,10 @@ class ResultWidget(QtWidgets.QWidget):
 
 			# normalize
 			# https://en.wikipedia.org/wiki/Radial_distribution_function
-			print("ok")
-			print(r)
-			print(rdf)
 			r /= a/self.lattice_multiplier
 			rdf[1:] /= r[1:]**2
 			rdf /= np.sum(rdf)*(r[1]-r[0])
 
-			print(r)
-			print(rdf)
 			win.rdf_r = r
 			win.rdf = rdf
 
@@ -1489,15 +1490,15 @@ class ResultWidget(QtWidgets.QWidget):
 
 		# add molecules
 		for i, m in enumerate(molecules):
-			self.position_data[i,:] = ET_get_vector(m, "p")
+			self.position_data[i,0:self.dim] = ET_get_vector(m, "p", self.dim)
 			el = m.get("element")
 
 		# add ghost molecules
 		offset = len(molecules)
 		for i, gm in enumerate(ghost_molecules):
 			mi = int(gm.get("m"))	# molecule index
-			t = np.array(ET_get_vector(gm, "t"))
-			self.position_data[i + offset,:] = self.position_data[mi,:] + t
+			t = np.array(ET_get_vector(gm, "t", self.dim))
+			self.position_data[i + offset,0:self.dim] = self.position_data[mi,0:self.dim] + t
 			self.color_data[i + offset,:] = self.color_data[mi,:]
 			self.size_data[i + offset] = self.size_data[mi]
 
@@ -2977,6 +2978,11 @@ class MainWindow(QtWidgets.QMainWindow):
 			xml_root = None
 			print(traceback.format_exc())
 
+		try:
+			result_file = xml_root.find("result_filename").text
+		except:
+			result_file = "results.xml"
+
 		show_progress = True
 
 		print("Running HM with id", id(hm))
@@ -3039,9 +3045,12 @@ class MainWindow(QtWidgets.QMainWindow):
 		elif other.file_id != self.file_id:
 			other = None
 
+		if not os.path.isabs(result_file):
+			result_dir = os.path.dirname(self.filename) if not self.filename is None else os.getcwd()
+			result_file = os.path.join(result_dir, result_file)
 
-		result_dir = os.path.dirname(self.filename) if not self.filename is None else os.getcwd()
-		result_file = os.path.join(result_dir, "results.xml")
+		print("loading", result_file)
+
 		with open(result_file, "rt") as f:
 			resultText = f.read()
 		#result_xml = ET.parse(result_file).getroot()

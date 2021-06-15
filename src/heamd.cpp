@@ -260,7 +260,6 @@ std::ostream& operator<<(std::ostream& os, const TTYOnly& tto)
 #define unit_energy  1.602176634e-19 // J (= 1eV)
 
 #define const_kB 1.380649e-23 // J/K
-#define const_eV 1.602176634e-19 // J
 
 
 //! Class for logging
@@ -494,6 +493,16 @@ inline void open_file(std::ofstream& fs, const std::string& filename)
 	}
 }
 
+
+std::string getFormattedTime(long s)
+{
+    long sec(s % 60);
+    long min((s / 60) % 60);
+    long h(s / 3600);
+    std::ostringstream oss;
+    oss << h << ":" << std::setfill('0') << std::setw(2) << min << ":" std::setw(2) << sec;
+    return oss.str()
+}
 
 
 //! Remove common leading whitespace from (multi-line) string
@@ -1034,7 +1043,7 @@ public:
 	//! \param max the maximum value for the progress parameter
 	//! \param steps number of update steps (the number of times the progress text is updated)
 	ProgressBar(T max = 100, T steps = 100)
-		: _max(max), _dp(100/steps), _p(0), _p_old(-1)
+		: _max(max), _dp(max/steps), _p(0), _p_old(-max)
 	{
 	}
 
@@ -1054,7 +1063,7 @@ public:
 	}
 
 	//! Returns true if the progress is complete
-	bool complete()
+	bool complete() const
 	{
 		return (_p >= _max);
 	}
@@ -1071,10 +1080,16 @@ public:
 		return _DEFAULT_TEXT _CLEAR_EOL "\r";
 	}
 
+	//! Returns the progress in percent
+	T progress() const
+	{
+		return _p/_max*100;
+	}
+
 	//! Returns the current progress message as stream to cout
 	std::ostream& message()
 	{
-		T percent = _p/_max*100;
+		T percent = progress();
 		_p_old = _p;
 		std::ostream& stream = LOG_COUT;
 		stream << (complete() ? GREEN_TEXT : YELLOW_TEXT) << (boost::format("%.2f%% complete: ") % percent);
@@ -1693,7 +1708,7 @@ public:
 template <typename T, int DIM>
 class EmbeddedAtomPotential : public PairPotential<T, DIM>
 {
-public:
+protected:
 	typedef struct
 	{
 		T re, fe, rhoe, rhos, alpha, beta, A, B, cai, ramda, Fi0, Fi1, Fi2, Fi3, Fm0, Fm1, Fm2, Fm3, fnn, Fn;
@@ -1705,6 +1720,15 @@ public:
 	
 	ParamMap _param_map;
 
+	inline T densFunc(T r, T b, T c)
+	{
+		return std::exp(-b*(r - 1.0)) / (1.0 + std::pow(std::max((T)0, r - c), 20.0));
+	}
+
+	inline T ddensFunc(T r, T b, T c)
+	{
+		return -densFunc(r, b, c) * (b + (r > c ? (20*std::pow(r - c, 19.0) / (1.0 + std::pow(std::max((T)0, r - c), 20.0))) : 0));
+	}
 
 	void addElement(std::string element_name, boost::shared_ptr<ElementParams> params)
 	{
@@ -1735,6 +1759,7 @@ public:
 		}
 	}
 
+public:
 	void readSettings(const ptree::ptree& pt)
 	{
 		std::string filename = "../../data/eam_database/parameters";
@@ -1771,16 +1796,6 @@ public:
 		}
 	}
 
-	inline T densFunc(T r, T b, T c)
-	{
-		return std::exp(-b*(r - 1.0)) / (1.0 + std::pow(std::max((T)0, r - c), 20.0));
-	}
-
-	inline T ddensFunc(T r, T b, T c)
-	{
-		return -densFunc(r, b, c) * (b + (r > c ? (20*std::pow(r - c, 19.0) / (1.0 + std::pow(std::max((T)0, r - c), 20.0))) : 0));
-	}
-
 	void compute(
 		std::size_t mi,
 		const std::vector<std::size_t>& nn_indices,
@@ -1790,20 +1805,10 @@ public:
 		std::vector< boost::shared_ptr< Molecule<T, DIM> > >& molecules,
 		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules)
 	{
-		static const T param_epsilon = 33.147 * 1e-3 * const_eV; // J
-		static const T param_n = 7;
-		static const T param_m = 6; //
-		static const T param_c = 16.399;
-		static const T param_a = 4.05 * unit_length; // m
-
-
 		//LOG_COUT << "compute" << std::endl;
-
-
 		//LOG_COUT << "nn " << (*nn) << std::endl;
 
 		// potential energy
-
 
 		boost::shared_ptr<ElementParams> p = _param_map[molecules[mi]->element->id];
 
@@ -1890,10 +1895,14 @@ public:
 				mi0 = gmolecules[-mi0]->molecule_index;
 			}
 
-			boost::shared_ptr<ElementParams> p0 = _param_map[molecules[mi0]->element->id];
+			// get parameters for element
+			typename ParamMap::iterator parami = _param_map.find(molecules[mi0]->element->id);
+			if (parami == _param_map.end()) {
+				BOOST_THROW_EXCEPTION(std::runtime_error((boost::format("No EAM parameters for element id '%s'") % molecules[mi0]->element->id).str()));
+			}
+			boost::shared_ptr<ElementParams> p0 = parami->second;
 
 			T r = std::sqrt(dist2[*nn]);
-
 			T r_by_re = r/p->re;
 			T dr_by_re = 1.0/p->re;
 			T r_by_re0 = r/p0->re;
@@ -1969,9 +1978,61 @@ public:
 template <typename T, int DIM>
 class SuttonChenPotential : public PairPotential<T, DIM>
 {
+protected:
+	typedef struct
+	{
+		T a, m, n, eps, c;
+	} ElementParams;
+
+	typedef std::map<std::string, boost::shared_ptr<ElementParams> > ParamMap;
+	
+	ParamMap _param_map;
+
+	void addElement(std::string element_name, boost::shared_ptr<ElementParams> params)
+	{
+		// the units in the file are Angstrom and eV and need to be converted to SI units
+		params->a *= unit_length;
+		params->eps *= unit_energy;
+
+		_param_map.insert(typename ParamMap::value_type(element_name, params));
+		LOG_COUT << "sc " << element_name << std::endl;
+	}
+
 public:
 	void readSettings(const ptree::ptree& pt)
 	{
+		std::string filename = "../../data/sutton_chen/parameters";
+		boost::filesystem::ifstream fh(filename);
+		std::string line;
+		std::string element_name;
+		std::size_t iparam = 0;
+		std::size_t num_params = 5;
+		boost::shared_ptr<ElementParams> params;
+
+		while (std::getline(fh, line))
+		{
+			if (line.length() == 0)
+				continue;
+
+			if (std::isalpha(line[0])) {
+				if (iparam == num_params) {
+					addElement(element_name, params);
+				}
+				params.reset(new ElementParams());
+				element_name = line;
+				iparam = 0;
+				continue;
+			}
+			
+			T* params_ptr = (T*) params.get();
+			params_ptr[iparam] = boost::lexical_cast<T>(line);
+
+			iparam++;
+		}
+
+		if (iparam == num_params) {
+			addElement(element_name, params);
+		}
 	}
 
 	void compute(
@@ -1983,17 +2044,13 @@ public:
 		std::vector< boost::shared_ptr< Molecule<T, DIM> > >& molecules,
 		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules)
 	{
-		static const T param_epsilon = 33.147 * 1e-3 * const_eV; // J
-		static const T param_n = 7;
-		static const T param_m = 6; //
-		static const T param_c = 16.399;
-		static const T param_a = 4.05 * unit_length; // m
+		// get parameters for element (we assume all elements are the same in this model)
+		typename ParamMap::iterator parami = _param_map.find(molecules[mi]->element->id);
+		if (parami == _param_map.end()) {
+			BOOST_THROW_EXCEPTION(std::runtime_error((boost::format("No SC parameters for element id '%s'") % molecules[mi]->element->id).str()));
+		}
+		boost::shared_ptr<ElementParams> param = parami->second;
 
-
-		//LOG_COUT << "compute" << std::endl;
-
-
-		//LOG_COUT << "nn " << (*nn) << std::endl;
 
 		// potential energy
 
@@ -2003,15 +2060,15 @@ public:
 		{
 			//LOG_COUT << "nn " << (*nn) << std::endl;
 
-			T a_by_r = param_a/std::sqrt(dist2[*nn]);
+			T a_by_r = param->a/std::sqrt(dist2[*nn]);
 
-			sum_V += std::pow(a_by_r, param_n);
-			sum_rho += std::pow(a_by_r, param_m);
+			sum_V += std::pow(a_by_r, param->n);
+			sum_rho += std::pow(a_by_r, param->m);
 
 			++nn;
 		}
 
-		molecules[mi]->U = param_epsilon*(0.5*sum_V - param_c*std::sqrt(sum_rho));
+		molecules[mi]->U = param->eps*(0.5*sum_V - param->c*std::sqrt(sum_rho));
 
 
 		// accelerations
@@ -2026,11 +2083,11 @@ public:
 		{
 			// compute potential gradient w.r.t. molecules[nn]->x
 
-			T a_by_r = param_a/std::sqrt(dist2[*nn]);
+			T a_by_r = param->a/std::sqrt(dist2[*nn]);
 
-			F = (0.5*param_epsilon*(
-				param_n*std::pow(a_by_r, param_n-1)
-				- param_c/std::sqrt(sum_rho)*param_m*std::pow(a_by_r, param_m-1))
+			F = (0.5*param->eps*(
+				param->n*std::pow(a_by_r, param->n-1)
+				- param->c/std::sqrt(sum_rho)*param->m*std::pow(a_by_r, param->m-1))
 			*(a_by_r/dist2[*nn]))*dir[*nn];
 
 			int mi0 = nmolecule_indices[*nn];
@@ -2076,6 +2133,7 @@ protected:
 	std::string _initial_position;	// fcc, random
 	std::string _initial_velocity;	// boltzmann, uniform, zero
 	std::string _time_step_mode;
+	std::string _xml_project_str;
 	std::size_t _lattice_multiplier;
 	std::size_t _N;
 	int _seed;
@@ -2092,6 +2150,7 @@ protected:
 
 	T _ds_max;
 	T _tau_T;
+	T _T0_scale;
 
 	std::vector< boost::shared_ptr< Molecule<T, DIM> > > _molecules;
 	std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > > _ghost_molecules;
@@ -2127,6 +2186,8 @@ public:
 		_ds_max = 0.01;
 		_tau_T = 1.0*unit_time;
 		_time_step_mode = "fixed";
+		_T0_scale = 2.0;
+		_xml_project_str = "";
 	}
 
 	inline void setTimestepCallback(TimestepCallback cb)
@@ -2154,6 +2215,7 @@ public:
 		_nn_levels = pt_get(pt, "nn_levels", _nn_levels);
 		_nn_radius = pt_get(pt, "nn_radius", _nn_radius/unit_length)*unit_length;
 		_nn_radius2 = _nn_radius*_nn_radius;
+		_T0_scale = pt_get(pt, "T0_scale", _T0_scale);
 
 		// load element database
 		_element_db_filename = pt_get(pt, "element_db", _element_db_filename);
@@ -2256,6 +2318,28 @@ public:
 				_intervals.push_back(iv);
 			}
 		}
+
+
+		// fetch the whole xml object as string
+		{
+			std::stringstream ss;
+			std::size_t indent = 1;
+			char indent_char = '\t';
+	#if BOOST_VERSION < 105800
+			ptree::xml_writer_settings<char> settings(indent_char, indent);
+	#else
+			ptree::xml_writer_settings<std::string> settings = boost::property_tree::xml_writer_make_settings<std::string>(indent_char, indent);
+	#endif
+
+			#if 0
+				write_xml(ss, pt, settings);	// adds <?xml declaration
+			#else
+				write_xml_element(ss, std::string(), pt, -1, settings);	// omits <?xml declaration
+			#endif
+
+			_xml_project_str = ss.str();
+			boost::trim(_xml_project_str);
+		}
 	}
 
 	void init()
@@ -2273,6 +2357,10 @@ public:
 		else if (_initial_position == "bcc")
 		{
 			_N = 2*std::pow(_lattice_multiplier, DIM);
+		}
+		else if (_initial_position == "hcp")
+		{
+			_N = std::pow(_lattice_multiplier, DIM);
 		}
 
 		_cell->scale(_lattice_multiplier);
@@ -2311,6 +2399,8 @@ public:
 
 	void run()
 	{
+		Timer __t("run", false);
+
 		LOG_COUT << "verlet" << std::endl;
 		// init verlet map
 		verlet_update();
@@ -2342,6 +2432,7 @@ public:
 		std::size_t istep = 0;
 		pt::ptime last_callback = pt::microsec_clock::universal_time();
 		T last_store = boost::numeric::bounds<T>::lowest();
+		ProgressBar<T> pb(tE, 10000);
 
 		while (it1 != _intervals.end())
 		{
@@ -2392,6 +2483,10 @@ public:
 				if (do_store) {
 					write_timestep(istep, t, Tp, p, f);
 					last_store = t;
+					if (pb.update(t)) {
+						T est = __t.seconds()*(100 - pb.progress())/(std::max((T)1, pb.progress()));
+						pb.message() << "progress at t=" << t << ", estimated runtime: " << getFormattedTime((long)est) << pb.end();
+					}
 				}
 				
 				if (!last_step) {
@@ -2404,6 +2499,7 @@ public:
 					bool do_callback = (now - last_callback).total_milliseconds() > (long)_callback_interval;
 					if (do_callback) {
 						if (_timestep_callback((float)(t/tE))) {
+							LOG_COUT << std::endl;
 							LOG_COUT << "Simulation canceled." << std::endl;
 							break;
 						}
@@ -2424,12 +2520,19 @@ public:
 			++it1;
 		}
 
+		LOG_COUT << std::endl;
 		write_tailing(f);
 	}
 
 	void write_header(std::ofstream & f)
 	{
 		f << "<results>\n";
+		
+		f << "\t<project>\n\t\t";
+		std::string xml = _xml_project_str;
+		boost::replace_all(xml, "\n", "\n\t\t");
+		f << xml;
+		f << "\n\t</project>\n";
 
 		f << "\t<dim>" << DIM << "</dim>\n";
 		f << "\t<nn_radius>" << (_nn_radius/unit_length) << "</nn_radius>\n";
@@ -2463,7 +2566,7 @@ public:
 				f << (boost::format("\t\t<molecule id='%d' element='%s' />\n") % i % _molecules[i]->element->id).str();
 			}
 		f << "\t</molecules>\n";
-		
+
 		f << "\t<timesteps>\n";
 	}
 
@@ -2592,7 +2695,6 @@ public:
 		}
 	}
 
-
 	void perform_timestep(T t, T dt, T Tp, T dT, T p, T dp)
 	{
 		Timer __t("perform_timestep", false);
@@ -2650,7 +2752,8 @@ public:
 
 
 		{
-			T v_scale = std::exp(dT/Tp);
+			//T v_scale = std::exp(dT/Tp);
+			T v_scale = std::sqrt(1 + dT/Tp);
 
 			auto mi = _molecules.begin();
 			while (mi != _molecules.end())
@@ -2802,35 +2905,54 @@ public:
 					std::size_t sub_index = index % 4;
 
 					std::size_t k = (index - sub_index)/4;
-					// compute sub cell index
-					std::array<std::size_t, DIM> subcell_index;
+					// compute cell index
+					std::array<std::size_t, DIM> cell_index;
 					for (std::size_t l = 0; l < DIM; l++) {
-						subcell_index[l] = k % _lattice_multiplier;
-						k -= subcell_index[l];
+						cell_index[l] = k % _lattice_multiplier;
+						k -= cell_index[l];
 						k /= _lattice_multiplier;
 					}
 
 					for (std::size_t j = 0; j < DIM; j++) {
 						std::size_t shift = 0;
 						if (sub_index > 0 && sub_index != j+1) shift = 1;
-						m->x[j] = p0[j] + (4*subcell_index[j] + 2*shift + 1)*L[j]/(4*_lattice_multiplier);
+						m->x[j] = p0[j] + (4*cell_index[j] + 2*shift + 1)*L[j]/(4*_lattice_multiplier);
 					}
+				}
+				else if (_initial_position == "hcp")
+				{
+					std::size_t k = index;
+					// compute cell index
+					std::array<std::size_t, DIM> cell_index;
+					for (std::size_t l = 0; l < DIM; l++) {
+						cell_index[l] = k % _lattice_multiplier;
+						k -= cell_index[l];
+						k /= _lattice_multiplier;
+					}
+
+					T xshift = (DIM > 1) && cell_index[1] % 2 != 0 ? (T)0.5 : (T)0;
+					T xshift1 = (DIM == 1) ? (T)0.25 : (T)0;
+					T yshift = (DIM > 2) && cell_index[2] % 2 != 0 ? (T)0.5 : (T)0;
+					T yshift2 = (DIM == 2) ? (T)0.25 : (T)0;
+					if (DIM > 0) m->x[0] = p0[0] + (cell_index[0] + 0.25 + xshift - 0.25*yshift + xshift1)*L[0]/_lattice_multiplier;
+					if (DIM > 1) m->x[1] = p0[1] + (cell_index[1] + 0.25 + yshift + yshift2)*L[1]/_lattice_multiplier;
+					if (DIM > 2) m->x[2] = p0[2] + (cell_index[2] + 0.25)*L[2]/_lattice_multiplier;
 				}
 				else if (_initial_position == "bcc")
 				{
 					std::size_t sub_index = index % 2;
 
 					std::size_t k = (index - sub_index)/2;
-					// compute sub cell index
-					std::array<std::size_t, DIM> subcell_index;
+					// compute cell index
+					std::array<std::size_t, DIM> cell_index;
 					for (std::size_t l = 0; l < DIM; l++) {
-						subcell_index[l] = k % _lattice_multiplier;
-						k -= subcell_index[l];
+						cell_index[l] = k % _lattice_multiplier;
+						k -= cell_index[l];
 						k /= _lattice_multiplier;
 					}
 
 					for (std::size_t j = 0; j < DIM; j++) {
-						m->x[j] = p0[j] + (4*subcell_index[j] + 2*sub_index + 1)*L[j]/(4*_lattice_multiplier);
+						m->x[j] = p0[j] + (4*cell_index[j] + 2*sub_index + 1)*L[j]/(4*_lattice_multiplier);
 					}
 				}
 				else if (_initial_position == "random")
@@ -2916,7 +3038,7 @@ public:
 		if (Ekin > 0)
 		{
 			T T0 = _intervals[0]->T; // initial temperature
-			T Ekin0 = 2.0 * 3.0/2.0*_molecules.size()*const_kB*T0;	// NOTE: factor 2 because Epot = 0
+			T Ekin0 = _T0_scale * 3.0/2.0*_molecules.size()*const_kB*T0;
 			T v_scale = std::sqrt(Ekin0/Ekin);
 
 			LOG_COUT << "Ekin0=" << Ekin0 << " Ekin=" << Ekin << " T0=" << T0 << std::endl;
@@ -3535,8 +3657,9 @@ public:
 
 		if (false) {}
 		//RUN_TYPE_AND_DIM(double, double, 2);
-		//RUN_TYPE_AND_DIM(double, float, 2);
 		//RUN_TYPE_AND_DIM(double, double, 3);
+		RUN_TYPE_AND_DIM(double, float, 1);
+		RUN_TYPE_AND_DIM(double, float, 2);
 		RUN_TYPE_AND_DIM(double, float, 3);
 #ifdef FFTWF_ENABLED
 		//RUN_TYPE_AND_DIM(float, float, 2);
