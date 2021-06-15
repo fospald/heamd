@@ -760,7 +760,7 @@ class PlotWidget(QtWidgets.QWidget):
 		timestepLabel = QtWidgets.QLabel()
 
 		def updateTimestepLabel():
-			timestepLabel.setText("%g" % values[timestepSlider.value()])
+			timestepLabel.setText("%#g" % values[timestepSlider.value()])
 
 		timestepSlider.valueChanged.connect(updateTimestepLabel)
 		updateTimestepLabel()
@@ -1036,8 +1036,22 @@ class ResultWidget(QtWidgets.QWidget):
 		# init rve rendering
 
 		self.rve_view = gl.GLViewWidget()
+		azimuth = -45
+		elevation = -45
+		distance = 2
+		if self.dim == 2:
+			elevation = 90
+			azimuth = -90
+		elif self.dim == 1:
+			elevation = 0
+			azimuth = -90
+		self.rve_view.opts['azimuth'] = azimuth
+		self.rve_view.opts['elevation'] = elevation
+		self.rve_view.opts['distance'] = distance*max(self.cell_size)
+		self.rve_view.opts['center'] = QtGui.QVector3D(*self.cell_center3)
+		#self.rve_view.setCameraPosition(pos=QtGui.QVector3D(*self.cell_center3),
+		#	distance=distance*max(self.cell_size), azimuth=azimuth, elevation=elevation)
 		self.rve_view.show()
-		self.rve_view.setCameraPosition(pos=QtGui.QVector3D(*self.cell_center3), distance=2*max(self.cell_size), azimuth=-90)
 
 		q = GLBoxItem()
 		q.scale(*self.cell_size3)
@@ -1121,10 +1135,10 @@ class ResultWidget(QtWidgets.QWidget):
 		#plot.addLegend()
 		plot.showGrid(x=True, y=True)
 		plot.plot(time, np.array(T), pen=(0,0,255), name="T")
+		win.addSmoothControls(plot)
 		plot.plot(time, np.array(T_control), pen=(0,255,0), name="T control")
 
 		win.addCursors(plot)
-		win.addSmoothControls(plot)
 
 		tab.addTab(win, "Temperature")
 
@@ -1467,7 +1481,7 @@ class ResultWidget(QtWidgets.QWidget):
 
 	def updateTimestepLabel(self):
 		ts = self.timesteps[self.timestepSlider.value()]
-		self.timestepLabel.setText("%g" % float(ts.attrib["t"]))
+		self.timestepLabel.setText("%#g (id=%d)" % (float(ts.attrib["t"]), int(ts.attrib["id"])))
 
 	def updateTimestep(self):
 

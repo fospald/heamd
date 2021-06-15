@@ -500,8 +500,8 @@ std::string getFormattedTime(long s)
     long min((s / 60) % 60);
     long h(s / 3600);
     std::ostringstream oss;
-    oss << h << ":" << std::setfill('0') << std::setw(2) << min << ":" std::setw(2) << sec;
-    return oss.str()
+    oss << h << ":" << std::setfill('0') << std::setw(2) << min << ":" << std::setw(2) << sec;
+    return oss.str();
 }
 
 
@@ -1821,7 +1821,7 @@ public:
 			int mi0 = nmolecule_indices[*nn];
 
 			if (mi0 < 0) {
-				mi0 = gmolecules[-mi0]->molecule_index;
+				mi0 = gmolecules[-1 - mi0]->molecule_index;
 			}
 
 			boost::shared_ptr<ElementParams> p0 = _param_map[molecules[mi0]->element->id];
@@ -1892,7 +1892,7 @@ public:
 			int mi0 = nmolecule_indices[*nn];
 
 			if (mi0 < 0) {
-				mi0 = gmolecules[-mi0]->molecule_index;
+				mi0 = gmolecules[-1 - mi0]->molecule_index;
 			}
 
 			// get parameters for element
@@ -2093,7 +2093,7 @@ public:
 			int mi0 = nmolecule_indices[*nn];
 
 			if (mi0 < 0) {
-				mi0 = gmolecules[-mi0]->molecule_index;
+				mi0 = gmolecules[-1 - mi0]->molecule_index;
 			}
 
 			#pragma omp critical
@@ -2376,7 +2376,7 @@ public:
 		}
 
 		for (std::size_t d = 0; d < DIM; d++) {
-			_vdims[d] = std::max((int)std::ceil(bb_size[d]/_nn_radius), 1) + 2;	// +2 for periodic boundary cells
+			_vdims[d] = std::max((int)std::floor(bb_size[d]/_nn_radius), 1) + 2;	// +2 for periodic boundary cells
 		}
 
 		LOG_COUT << "Verlet dimensions x = " << _vdims[0] << std::endl;
@@ -2490,7 +2490,7 @@ public:
 				}
 				
 				if (!last_step) {
-					perform_timestep(t, dt, Tp, dTdt*dt, p, dpdt*dt);
+					perform_timestep(istep, t, dt, Tp, dTdt*dt, p, dpdt*dt);
 					istep++;
 				}
 		
@@ -2578,7 +2578,7 @@ public:
 		f.close();
 	}
 
-	void compute_forces()
+	void compute_forces(bool debug = false)
 	{
 		Timer __t("compute_forces", false);
 
@@ -2659,7 +2659,7 @@ public:
 				{
 					if (nmolecule_indices[j] < 0) {
 						
-						boost::shared_ptr< GhostMolecule<T, DIM> > nmolecule = _ghost_molecules[(std::size_t)(-nmolecule_indices[j])];
+						boost::shared_ptr< GhostMolecule<T, DIM> > nmolecule = _ghost_molecules[(std::size_t)(-1 - nmolecule_indices[j])];
 						dir[j] = _molecules[nmolecule->molecule_index]->x + nmolecule->t - molecule->x;
 					}
 					else {
@@ -2677,6 +2677,18 @@ public:
 					}
 				}
 
+
+				if (debug)
+				{
+					LOG_COUT << "molecule " << *mi << ":" << std::endl;
+					for (std::size_t i = 0; i < nmolecule_indices.size(); i++) {
+						LOG_COUT << " nm " << i << ": " << nmolecule_indices[i] << std::endl;
+					}
+
+					for (std::size_t i = 0; i < nn_indices.size(); i++) {
+						LOG_COUT << " nn " << i << ": " << nn_indices[i] << " dist2=" << dist2[nn_indices[i]] << " dir=" << dir[nn_indices[i]][0] << std::endl;
+					}
+				}
 				
 				// compute potential energy and gradient for metallic system
 				// Solhjoo_Simchi_Aashuri__Molecular_dynamics_simulation_of_melting,_solidification_and_remelting_process_of_aluminium.pdf
@@ -2695,7 +2707,7 @@ public:
 		}
 	}
 
-	void perform_timestep(T t, T dt, T Tp, T dT, T p, T dp)
+	void perform_timestep(std::size_t istep, T t, T dt, T Tp, T dT, T p, T dp)
 	{
 		Timer __t("perform_timestep", false);
 
@@ -2725,8 +2737,10 @@ public:
 		}
 
 
+		bool debug = false; //(istep >= 3070) && (istep <= 3072);
+
 		verlet_update();
-		compute_forces();
+		compute_forces(debug);
 		
 
 		ublas::c_vector<T, DIM> p_mean;
@@ -2752,8 +2766,8 @@ public:
 
 
 		{
-			//T v_scale = std::exp(dT/Tp);
-			T v_scale = std::sqrt(1 + dT/Tp);
+			T v_scale = std::exp(dT/Tp);
+			//T v_scale = std::sqrt(1 + dT/Tp);
 
 			auto mi = _molecules.begin();
 			while (mi != _molecules.end())
@@ -2811,7 +2825,7 @@ public:
 	{
 		Timer __t("write_timestep", false);
 
-		f << (boost::format("\t\t<timestep t='%g' T='%g' p='%g'>\n") % (t/unit_time) % (Tp/unit_T) % (p/unit_p)).str();
+		f << (boost::format("\t\t<timestep id='%d' t='%g' T='%g' p='%g'>\n") % index % (t/unit_time) % (Tp/unit_T) % (p/unit_p)).str();
 
 		f << "\t\t\t<stats>\n";
 
@@ -2846,6 +2860,7 @@ public:
 					f << (boost::format(" v%d='%g'") % d % (_molecules[i]->v[d]/unit_length*unit_time)).str();
 					f << (boost::format(" a%d='%g'") % d % (_molecules[i]->F[d]/_molecules[i]->element->m/unit_length*unit_time*unit_time)).str();
 				}
+				f << (boost::format(" U='%g'") % (_molecules[i]->U/unit_energy)).str();
 				f << " />\n";
 			}
 		f << "\t\t\t</molecules>\n";
@@ -3134,7 +3149,7 @@ public:
 			if (verlet_index(p, index))
 			{
 				// add ghost molecule to list
-				int gm_index = -(int)_ghost_molecules.size();
+				int gm_index = -(int)(_ghost_molecules.size() + 1);
 				boost::shared_ptr< GhostMolecule<T, DIM> > gm;
 				gm.reset(new GhostMolecule<T, DIM>());
 				gm->t = neighbour_translations[j];
