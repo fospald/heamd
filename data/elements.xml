@@ -1,10 +1,121 @@
 <?xml version="1.0" encoding="utf-8"?>
 <elements>
-<!--
-mass unit: u
-length unit: angstrom
--->
-	<element id="Al" Z="13" r="1.43" m="26.981539" />
-	<element id="Co" Z="3" r="0.05" />
-	<element id="Cr" Z="3" r="0.1" />
+	<element id="H" Z="1" m="1.008000" r="0.530000" />
+	<element id="He" Z="2" m="4.002602" r="0.310000" />
+	<element id="Li" Z="3" m="6.940000" r="1.670000" />
+	<element id="Be" Z="4" m="9.012183" r="1.120000" />
+	<element id="B" Z="5" m="10.810000" r="0.870000" />
+	<element id="C" Z="6" m="12.011000" r="0.670000" />
+	<element id="N" Z="7" m="14.007000" r="0.560000" />
+	<element id="O" Z="8" m="15.999000" r="0.480000" />
+	<element id="F" Z="9" m="18.998403" r="0.420000" />
+	<element id="Ne" Z="10" m="20.179700" r="0.380000" />
+	<element id="Na" Z="11" m="22.989769" r="1.900000" />
+	<element id="Mg" Z="12" m="24.305000" r="1.450000" />
+	<element id="Al" Z="13" m="26.981538" r="1.180000" />
+	<element id="Si" Z="14" m="28.085000" r="1.110000" />
+	<element id="P" Z="15" m="30.973762" r="0.980000" />
+	<element id="S" Z="16" m="32.060000" r="0.870000" />
+	<element id="Cl" Z="17" m="35.450000" r="0.790000" />
+	<element id="Ar" Z="18" m="39.948000" r="0.710000" />
+	<element id="K" Z="19" m="39.098300" r="2.430000" />
+	<element id="Ca" Z="20" m="40.078000" r="1.940000" />
+	<element id="Sc" Z="21" m="44.955908" r="1.840000" />
+	<element id="Ti" Z="22" m="47.867000" r="1.760000" />
+	<element id="V" Z="23" m="50.941500" r="1.710000" />
+	<element id="Cr" Z="24" m="51.996100" r="1.660000" />
+	<element id="Mn" Z="25" m="54.938044" r="1.610000" />
+	<element id="Fe" Z="26" m="55.845000" r="1.560000" />
+	<element id="Co" Z="27" m="58.933194" r="1.520000" />
+	<element id="Ni" Z="28" m="58.693400" r="1.490000" />
+	<element id="Cu" Z="29" m="63.546000" r="1.450000" />
+	<element id="Zn" Z="30" m="65.380000" r="1.420000" />
+	<element id="Ga" Z="31" m="69.723000" r="1.360000" />
+	<element id="Ge" Z="32" m="72.630000" r="1.250000" />
+	<element id="As" Z="33" m="74.921595" r="1.140000" />
+	<element id="Se" Z="34" m="78.971000" r="1.030000" />
+	<element id="Br" Z="35" m="79.904000" r="0.940000" />
+	<element id="Kr" Z="36" m="83.798000" r="0.870000" />
+	<element id="Rb" Z="37" m="85.467800" r="2.650000" />
+	<element id="Sr" Z="38" m="87.620000" r="2.190000" />
+	<element id="Y" Z="39" m="88.905840" r="2.120000" />
+	<element id="Zr" Z="40" m="91.224000" r="2.060000" />
+	<element id="Nb" Z="41" m="92.906370" r="1.980000" />
+	<element id="Mo" Z="42" m="95.950000" r="1.900000" />
+	<element id="Tc" Z="43" m="97.000000" r="1.830000" />
+	<element id="Ru" Z="44" m="101.070000" r="1.780000" />
+	<element id="Rh" Z="45" m="102.905500" r="1.730000" />
+	<element id="Pd" Z="46" m="106.420000" r="1.690000" />
+	<element id="Ag" Z="47" m="107.868200" r="1.650000" />
+	<element id="Cd" Z="48" m="112.414000" r="1.610000" />
+	<element id="In" Z="49" m="114.818000" r="1.560000" />
+	<element id="Sn" Z="50" m="118.710000" r="1.450000" />
+	<element id="Sb" Z="51" m="121.760000" r="1.330000" />
+	<element id="Te" Z="52" m="127.600000" r="1.230000" />
+	<element id="I" Z="53" m="126.904470" r="1.150000" />
+	<element id="Xe" Z="54" m="131.293000" r="1.080000" />
+	<element id="Cs" Z="55" m="132.905452" r="2.980000" />
+	<element id="Ba" Z="56" m="137.327000" r="2.530000" />
+	<element id="La" Z="57" m="138.905470" />
+	<element id="Ce" Z="58" m="140.116000" />
+	<element id="Pr" Z="59" m="140.907660" r="2.470000" />
+	<element id="Nd" Z="60" m="144.242000" r="2.060000" />
+	<element id="Pm" Z="61" m="145.000000" r="2.050000" />
+	<element id="Sm" Z="62" m="150.360000" r="2.380000" />
+	<element id="Eu" Z="63" m="151.964000" r="2.310000" />
+	<element id="Gd" Z="64" m="157.250000" r="2.330000" />
+	<element id="Tb" Z="65" m="158.925350" r="2.250000" />
+	<element id="Dy" Z="66" m="162.500000" r="2.280000" />
+	<element id="Ho" Z="67" m="164.930330" r="2.260000" />
+	<element id="Er" Z="68" m="167.259000" r="2.260000" />
+	<element id="Tm" Z="69" m="168.934220" r="2.220000" />
+	<element id="Yb" Z="70" m="173.045000" r="2.220000" />
+	<element id="Lu" Z="71" m="174.966800" r="2.170000" />
+	<element id="Hf" Z="72" m="178.490000" r="2.080000" />
+	<element id="Ta" Z="73" m="180.947880" r="2.000000" />
+	<element id="W" Z="74" m="183.840000" r="1.930000" />
+	<element id="Re" Z="75" m="186.207000" r="1.880000" />
+	<element id="Os" Z="76" m="190.230000" r="1.850000" />
+	<element id="Ir" Z="77" m="192.217000" r="1.800000" />
+	<element id="Pt" Z="78" m="195.084000" r="1.770000" />
+	<element id="Au" Z="79" m="196.966569" r="1.740000" />
+	<element id="Hg" Z="80" m="200.592000" r="1.710000" />
+	<element id="Tl" Z="81" m="204.380000" r="1.560000" />
+	<element id="Pb" Z="82" m="207.200000" r="1.540000" />
+	<element id="Bi" Z="83" m="208.980400" r="1.430000" />
+	<element id="Po" Z="84" m="209.000000" r="1.350000" />
+	<element id="At" Z="85" m="210.000000" r="1.270000" />
+	<element id="Rn" Z="86" m="222.000000" r="1.200000" />
+	<element id="Fr" Z="87" m="223.000000" />
+	<element id="Ra" Z="88" m="226.000000" />
+	<element id="Ac" Z="89" m="227.000000" />
+	<element id="Th" Z="90" m="232.037700" />
+	<element id="Pa" Z="91" m="231.035880" />
+	<element id="U" Z="92" m="238.028910" />
+	<element id="Np" Z="93" m="237.000000" />
+	<element id="Pu" Z="94" m="244.000000" />
+	<element id="Am" Z="95" m="243.000000" />
+	<element id="Cm" Z="96" m="247.000000" />
+	<element id="Bk" Z="97" m="247.000000" />
+	<element id="Cf" Z="98" m="251.000000" />
+	<element id="Es" Z="99" m="252.000000" />
+	<element id="Fm" Z="100" m="257.000000" />
+	<element id="Md" Z="101" m="258.000000" />
+	<element id="No" Z="102" m="259.000000" />
+	<element id="Lr" Z="103" m="262.000000" />
+	<element id="Rf" Z="104" m="267.000000" />
+	<element id="Db" Z="105" m="270.000000" />
+	<element id="Sg" Z="106" m="269.000000" />
+	<element id="Bh" Z="107" m="270.000000" />
+	<element id="Hs" Z="108" m="270.000000" />
+	<element id="Mt" Z="109" m="278.000000" />
+	<element id="Ds" Z="110" m="281.000000" />
+	<element id="Rg" Z="111" m="281.000000" />
+	<element id="Cn" Z="112" m="285.000000" />
+	<element id="Nh" Z="113" m="286.000000" />
+	<element id="Fl" Z="114" m="289.000000" />
+	<element id="Mc" Z="115" m="289.000000" />
+	<element id="Lv" Z="116" m="293.000000" />
+	<element id="Ts" Z="117" m="293.000000" />
+	<element id="Og" Z="118" m="294.000000" />
 </elements>

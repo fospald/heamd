@@ -202,7 +202,7 @@ namespace py = boost::python;
 #define _BLUE_TEXT	"\033[0;34m"
 #define _WHITE_TEXT	"\033[0;97m"
 #define _INVERSE_COLORS	"\033[7m"
-#define _CLEAR_EOL	"\033[K"
+#define _CLEAR_EOL	"\033[2K"
 
 #define DEFAULT_TEXT	TTYOnly(_DEFAULT_TEXT)
 #define BOLD_TEXT	TTYOnly(_BOLD_TEXT)
@@ -1676,6 +1676,7 @@ class SimulationInterval
 {
 public:
 	D t, T, p, dt;
+	bool enforce_T, enforce_mean_T;
 };
 
 
@@ -2125,6 +2126,7 @@ public:
 
 protected:
 	bool _zero_mean;
+	bool _shuffle_elements;
 	bool _periodic_bc;
 	std::string _potential_type;
 	std::string _cell_type;
@@ -2157,10 +2159,12 @@ protected:
 	std::vector< boost::shared_ptr< SimulationInterval<T, DIM> > > _intervals;
 	std::vector< boost::shared_ptr< ElementFraction<T, DIM> > > _fractions;
 
+	T _current_Ekin;
+	T _current_Epot;
 	T _stats_Ekin;
 	T _stats_Epot;
 	ublas::c_vector<T, DIM> _stats_mv;
-	std::size_t _stats_n;
+	T _stats_dt;
 
 	// callbacks
 	TimestepCallback _timestep_callback;
@@ -2188,6 +2192,7 @@ public:
 		_time_step_mode = "fixed";
 		_T0_scale = 2.0;
 		_xml_project_str = "";
+		_shuffle_elements = true;
 	}
 
 	inline void setTimestepCallback(TimestepCallback cb)
@@ -2216,6 +2221,7 @@ public:
 		_nn_radius = pt_get(pt, "nn_radius", _nn_radius/unit_length)*unit_length;
 		_nn_radius2 = _nn_radius*_nn_radius;
 		_T0_scale = pt_get(pt, "T0_scale", _T0_scale);
+		_shuffle_elements = pt_get(pt, "shuffle_elements", _shuffle_elements);
 
 		// load element database
 		_element_db_filename = pt_get(pt, "element_db", _element_db_filename);
@@ -2309,6 +2315,8 @@ public:
 				iv.reset(new SimulationInterval<T, DIM>());
 				iv->t = pt_get<T>(attr, "t", last_t/unit_time) * unit_time;
 				iv->T = pt_get<T>(attr, "T", last_T/unit_T) * unit_T;
+				iv->enforce_T = pt_get<bool>(attr, "enforce_T", false);
+				iv->enforce_mean_T = pt_get<bool>(attr, "enforce_mean_T", false);
 				iv->p = pt_get<T>(attr, "p", last_p/unit_p) * unit_p;
 				iv->dt = pt_get<T>(attr, "dt", last_dt/unit_time) * unit_time;
 				last_t = iv->t;
@@ -2397,6 +2405,30 @@ public:
 		}
 	}
 
+
+	T calc_timestep(T dt0)
+	{
+		T dt;
+
+		// compute timestep
+		if (_time_step_mode == "ds_max") {
+			dt = boost::numeric::bounds<T>::highest();
+			auto mi = _molecules.begin();
+			while (mi != _molecules.end()) {
+				T v = std::sqrt(ublas::inner_prod((*mi)->v, (*mi)->v));
+				T a = std::sqrt(ublas::inner_prod((*mi)->F, (*mi)->F)) / (*mi)->element->m;
+				T dt_opt = 1/(v/_ds_max + std::sqrt(a/(2*_ds_max)));
+				dt = std::min(dt, dt_opt);
+				++mi;
+			}
+		}
+		else {
+			dt = dt0;
+		}
+
+		return dt;
+	}
+
 	void run()
 	{
 		Timer __t("run", false);
@@ -2432,7 +2464,15 @@ public:
 		std::size_t istep = 0;
 		pt::ptime last_callback = pt::microsec_clock::universal_time();
 		T last_store = boost::numeric::bounds<T>::lowest();
-		ProgressBar<T> pb(tE, 10000);
+		ProgressBar<T> pb(tE - tB, 10000);
+
+		T mean_Ekin = 0;
+		T mean_Epot = 0;
+		T mean_dt = 0;
+		T last_Ekin, last_Epot;
+		calc_Energy(last_Ekin, last_Epot);
+		_current_Ekin = last_Ekin;
+		_current_Epot = last_Epot;
 
 		while (it1 != _intervals.end())
 		{
@@ -2449,26 +2489,26 @@ public:
 				last_interval = true;
 			}
 
+			if ((*it0)->enforce_mean_T) {
+				mean_Ekin = 0;
+				mean_Epot = 0;
+				mean_dt = 0;
+			}
+
 			for(;;)
 			{
 				// compute timestep
-				if (_time_step_mode == "ds_max") {
-					dt = boost::numeric::bounds<T>::highest();
-					auto mi = _molecules.begin();
-					while (mi != _molecules.end()) {
-						T v = std::sqrt(ublas::inner_prod((*mi)->v, (*mi)->v));
-						T a = std::sqrt(ublas::inner_prod((*mi)->F, (*mi)->F)) / (*mi)->element->m;
-						T dt_opt = 1/(v/_ds_max + std::sqrt(a/(2*_ds_max)));
-						dt = std::min(dt, dt_opt);
-						++mi;
-					}
-					dt = std::min(dt, t1 - t);
-				}
-				else {
-					dt = (*it0)->dt;
+				dt = calc_timestep((*it0)->dt);
+				dt = std::min(dt, t1 - t);
+
+				if ((*it0)->enforce_T || (*it0)->enforce_mean_T) {
+					set_temperature(Tp, _current_Ekin);
 				}
 
-				acc_stats();
+				acc_stats(dt);
+				mean_Ekin += _current_Ekin*dt;
+				mean_Epot += _current_Epot*dt;
+				mean_dt += dt;
 
 				bool last_timestep = (t == t1);
 				bool last_step = last_interval && last_timestep;
@@ -2479,13 +2519,16 @@ public:
 				if (_store_interval > 0 && istep % _store_interval == 0) {
 					do_store = true;
 				}
+				if (last_timestep) {
+					do_store = true;
+				}
 
 				if (do_store) {
 					write_timestep(istep, t, Tp, p, f);
 					last_store = t;
-					if (pb.update(t)) {
-						T est = __t.seconds()*(100 - pb.progress())/(std::max((T)1, pb.progress()));
-						pb.message() << "progress at t=" << t << ", estimated runtime: " << getFormattedTime((long)est) << pb.end();
+					if (pb.update(t - tB)) {
+						T est = 0.5 + __t.seconds()*(100 - pb.progress())/(std::max((T)1, pb.progress()));
+						pb.message() << " estimated runtime: " << getFormattedTime((long)est) << " at t=" << t << pb.end();
 					}
 				}
 				
@@ -2498,7 +2541,8 @@ public:
 					pt::ptime now = pt::microsec_clock::universal_time();
 					bool do_callback = (now - last_callback).total_milliseconds() > (long)_callback_interval;
 					if (do_callback) {
-						if (_timestep_callback((float)(t/tE))) {
+						T progress = (t - tB)/(tE - tB);
+						if (_timestep_callback((float)progress)) {
 							LOG_COUT << std::endl;
 							LOG_COUT << "Simulation canceled." << std::endl;
 							break;
@@ -2507,13 +2551,36 @@ public:
 					}
 				}
 
-				if (t == t1) {
+				if (last_timestep) {
 					break;
 				}
 
 				t = (dt < 0) ? std::max(t + dt, t1) : std::min(t + dt, t1);
 				p += dpdt*dt;
 				Tp += dTdt*dt;
+				last_Ekin = _current_Ekin;
+				last_Epot = _current_Epot;
+			}
+
+			if ((*it0)->enforce_mean_T) {
+				T Ekin_mean = mean_Ekin/mean_dt;
+				T Epot_mean = mean_Epot/mean_dt;
+				
+				T Ekin_set = Ekin_mean + Epot_mean - _current_Epot;
+				T T_set = Ekin_set*2.0/(3.0*_molecules.size()*const_kB);
+
+				LOG_COUT << "t = " << (t) << std::endl;
+				LOG_COUT << "Ekin_set = " << (Ekin_set/unit_energy) << std::endl;
+				LOG_COUT << "T_set = " << (T_set/unit_energy) << std::endl;
+				LOG_COUT << "Ekin_mean = " << (Ekin_mean/unit_energy) << std::endl;
+				LOG_COUT << "Epot_mean = " << (Epot_mean/unit_energy) << std::endl;
+
+				set_temperature(T_set, _current_Ekin);
+
+				T x, y;
+				calc_Energy(x, y);
+				LOG_COUT << "Get Ekin = " << x << std::endl;
+				LOG_COUT << "Get Epot = " << y << std::endl;
 			}
 
 			++it0;
@@ -2765,29 +2832,51 @@ public:
 		}
 
 
+		T v_scale = std::exp(dT/Tp);
+		//T v_scale = std::sqrt(1 + dT/Tp);
+
+		_current_Ekin = 0;
+		_current_Epot = 0;
+
+		auto mi = _molecules.begin();
+		while (mi != _molecules.end())
 		{
-			T v_scale = std::exp(dT/Tp);
-			//T v_scale = std::sqrt(1 + dT/Tp);
+			boost::shared_ptr< Molecule<T, DIM> > m = *mi;
 
-			auto mi = _molecules.begin();
-			while (mi != _molecules.end())
-			{
-				boost::shared_ptr< Molecule<T, DIM> > m = *mi;
-
-				if (_zero_mean) {
-					// adjust to zero mean impulse
-					m->v -= p_mean/m->element->m;
-				}
-
-				// scale velocities to adjust temperature
-				m->v *= v_scale;
-				++mi;
+			if (_zero_mean) {
+				// adjust to zero mean impulse
+				m->v -= p_mean/m->element->m;
 			}
-		
+
+			// scale velocities to adjust temperature
+			m->v *= v_scale;
+	
+			// update Ekin and Epot	
+			_current_Ekin += 0.5*(*mi)->element->m*ublas::inner_prod((*mi)->v, (*mi)->v);
+			_current_Epot +=(*mi)->U;
+
+			++mi;
 		}
 	}
 
-	void acc_stats()
+	T calc_Energy(T& Ekin, T& Epot)
+	{
+		Ekin = 0;
+		Epot = 0;
+
+		auto mi = _molecules.begin();
+		while (mi != _molecules.end())
+		{
+			Ekin += 0.5*(*mi)->element->m*ublas::inner_prod((*mi)->v, (*mi)->v);
+			Epot += (*mi)->U;
+
+			++mi;
+		}
+
+		return Ekin;
+	}
+
+	void acc_stats(T dt)
 	{
 		T Ekin = 0, Epot = 0;
 		ublas::c_vector<T, DIM> mv;
@@ -2799,18 +2888,18 @@ public:
 			mv += _molecules[i]->element->m*_molecules[i]->v;
 		}
 
-		_stats_Ekin += Ekin;
-		_stats_Epot += Epot;
-		_stats_mv += mv;
-		_stats_n += 1;
+		_stats_Ekin += Ekin*dt;
+		_stats_Epot += Epot*dt;
+		_stats_mv += mv*dt;
+		_stats_dt += dt;
 	}
 
 	void norm_stats()
 	{
-		_stats_Ekin /= _stats_n;
-		_stats_Epot /= _stats_n;
-		_stats_mv /= _stats_n;
-		_stats_n = 1;
+		_stats_Ekin /= _stats_dt;
+		_stats_Epot /= _stats_dt;
+		_stats_mv /= _stats_dt;
+		_stats_dt = 1;
 	}
 
 	void reset_stats()
@@ -2818,7 +2907,7 @@ public:
 		_stats_Ekin = 0;
 		_stats_Epot = 0;
 		std::fill(_stats_mv.begin(), _stats_mv.end(), (T)0);
-		_stats_n = 0;
+		_stats_dt = 0;
 	}
 
 	void write_timestep(std::size_t index, T t, T Tp, T p, std::ofstream & f)
@@ -2895,6 +2984,7 @@ public:
 
 		rndu.seed(_seed);
 		rndn.seed(_seed);
+		std::srand(_seed);
 
 		// create N molecules based on the provided fractions
 		auto fr = _fractions.begin();
@@ -3026,6 +3116,14 @@ public:
 			++fr;
 		}
 
+		if (_shuffle_elements)
+		{
+			// shuffle elements
+			std::size_t n = _molecules.size();
+			for (std::size_t i = n-1; i > 0; --i) {
+				std::swap(_molecules[i]->element, _molecules[std::rand() % (i+1)]->element);
+			}
+		}
 
 		// adjust to zero mean impulse and compute kienetic energy
 
@@ -3050,23 +3148,8 @@ public:
 
 		// scale velocities to match initial temperature T0
 
-		if (Ekin > 0)
-		{
-			T T0 = _intervals[0]->T; // initial temperature
-			T Ekin0 = _T0_scale * 3.0/2.0*_molecules.size()*const_kB*T0;
-			T v_scale = std::sqrt(Ekin0/Ekin);
-
-			LOG_COUT << "Ekin0=" << Ekin0 << " Ekin=" << Ekin << " T0=" << T0 << std::endl;
-
-			auto mi = _molecules.begin();
-			while (mi != _molecules.end())
-			{
-				boost::shared_ptr< Molecule<T, DIM> > molecule = *mi;
-
-				(*mi)->v *= v_scale;
-				++mi;
-			}
-		}
+		T T0 = _T0_scale*_intervals[0]->T; // initial temperature
+		set_temperature(T0, Ekin);
 
 		/*
 		{
@@ -3086,6 +3169,28 @@ public:
 		}
 		*/
 
+	}
+
+	void set_temperature(T T0, T Ekin)
+	{
+		if (Ekin > 0)
+		{
+			T Ekin0 = 3.0/2.0*_molecules.size()*const_kB*T0;
+			T v_scale = std::sqrt(Ekin0/Ekin);
+
+			//LOG_COUT << "Ekin0=" << Ekin0 << " Ekin=" << Ekin << " T0=" << T0 << std::endl;
+
+			auto mi = _molecules.begin();
+			while (mi != _molecules.end())
+			{
+				boost::shared_ptr< Molecule<T, DIM> > molecule = *mi;
+
+				(*mi)->v *= v_scale;
+				++mi;
+			}
+
+			_current_Ekin *= v_scale*v_scale;
+		}
 	}
 
 	void verlet_update()

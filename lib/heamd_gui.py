@@ -849,7 +849,7 @@ class PlotWidget(QtWidgets.QWidget):
 			if plot.sceneBoundingRect().contains(pos):
 				mousePoint = plot.vb.mapSceneToView(pos)
 				x = mousePoint.x()
-				text = "<span style='font-size: 12pt'>%s=%.3g" % (xLabel, x)
+				text = "<span style='font-size: 12pt'>%s=%.4g" % (xLabel, x)
 
 				for item in plot.items:
 					if not isinstance(item, pg.PlotDataItem):
@@ -859,7 +859,7 @@ class PlotWidget(QtWidgets.QWidget):
 					#print(item.xData, item.yData, item)
 					f = scipy.interpolate.interp1d(item.xData, item.yData, fill_value='extrapolate')
 					y = f(x)
-					text += ",   <span style='color: #%02x%02x%02x'>%s=%.3g</span>" % (*item.opts["pen"], item.opts["name"], y)
+					text += ",   <span style='color: #%02x%02x%02x'>%s=%.4g</span>" % (*item.opts["pen"], item.opts["name"], y)
 				label.setText(text)
 				vLine.setPos(mousePoint.x())
 				hLine.setPos(mousePoint.y())
@@ -1116,13 +1116,17 @@ class ResultWidget(QtWidgets.QWidget):
 		plot.setLabel('bottom', 'Time', units='s')
 		plot.addLegend(offset=(-50, 50), colCount=1)
 		plot.showGrid(x=True, y=True)
+		E0 = Epot[0]
 		plot.plot(time, np.array(Ekin), pen=(255,0,0), name="Ekin")
-		plot.plot(time, np.array(Epot) - Epot[0], pen=(0,255,0), name="Epot")
-		plot.plot(time, np.array(Etot) - Epot[0], pen=(0,0,255), name="Etot")
+		plot.plot(time, np.array(Epot) - E0, pen=(0,255,0), name="Epot-E0")
+		plot.plot(time, np.array(Etot) - E0, pen=(0,0,255), name="Etot-E0")
 		plot.plot(time, np.array(MV), pen=(255,0, 255), name="p²/2M")
 
 		win.addCursors(plot)
 		win.addSmoothControls(plot)
+
+		label = QtWidgets.QLabel("E0 = %.4g eV" % E0)
+		win.vbox.addWidget(label)
 
 		tab.addTab(win, "Energy")
 
