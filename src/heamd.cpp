@@ -2128,6 +2128,7 @@ protected:
 	bool _zero_mean;
 	bool _shuffle_elements;
 	bool _periodic_bc;
+	bool _write_ghosts;
 	std::string _potential_type;
 	std::string _cell_type;
 	std::string _result_filename;
@@ -2183,6 +2184,7 @@ public:
 		_store_interval = 0;
 		_store_number = 500;
 		_periodic_bc = true;
+		_write_ghosts = false;
 		_zero_mean = true;
 		_initial_position = "fcc";
 		_lattice_multiplier = 1;
@@ -2212,6 +2214,7 @@ public:
 		_initial_velocity = pt_get(pt, "initial_velocity", _initial_velocity);
 		_lattice_multiplier = pt_get(pt, "lattice_multiplier", _lattice_multiplier);
 		_periodic_bc = pt_get(pt, "periodic_bc", _periodic_bc);
+		_write_ghosts = pt_get(pt, "write_ghosts", _write_ghosts);
 		_zero_mean = pt_get(pt, "zero_mean", _zero_mean);
 		_result_filename = pt_get(pt, "result_filename", _result_filename);
 		_time_step_mode = pt_get(pt, "time_step_mode", _time_step_mode);
@@ -2896,9 +2899,11 @@ public:
 
 	void norm_stats()
 	{
-		_stats_Ekin /= _stats_dt;
-		_stats_Epot /= _stats_dt;
-		_stats_mv /= _stats_dt;
+		if (_stats_dt != 0) {
+			_stats_Ekin /= _stats_dt;
+			_stats_Epot /= _stats_dt;
+			_stats_mv /= _stats_dt;
+		}
 		_stats_dt = 1;
 	}
 
@@ -2918,6 +2923,7 @@ public:
 
 		f << "\t\t\t<stats>\n";
 
+			T dt = _stats_dt;
 			norm_stats();
 
 			T M = 0;
@@ -2930,6 +2936,7 @@ public:
 			T P = 2.0*_stats_Ekin/(3.0*_cell->volume());	// Pa
 			T mv = std::sqrt(ublas::inner_prod(_stats_mv, _stats_mv));
 
+			f << (boost::format("<dt>%g</dt>") % (dt/unit_time)).str();
 			f << (boost::format("<Ekin>%g</Ekin>") % (_stats_Ekin/unit_energy)).str();
 			f << (boost::format("<Epot>%g</Epot>") % (_stats_Epot/unit_energy)).str();
 			f << (boost::format("<Etot>%g</Etot>") % (Etot/unit_energy)).str();
@@ -2954,18 +2961,19 @@ public:
 			}
 		f << "\t\t\t</molecules>\n";
 
-		f << "\t\t\t<ghost_molecules>\n";
-			auto it = _ghost_molecules.begin();
-			while (it != _ghost_molecules.end()) {
-				f << (boost::format("\t\t\t\t<ghost_molecule m='%d'") % (*it)->molecule_index).str();
-				for (std::size_t d = 0; d < DIM; d++) {
-					f << (boost::format(" t%d='%g'") % d % ((*it)->t[d]/unit_length)).str();
+		if (_write_ghosts) {
+			f << "\t\t\t<ghost_molecules>\n";
+				auto it = _ghost_molecules.begin();
+				while (it != _ghost_molecules.end()) {
+					f << (boost::format("\t\t\t\t<ghost_molecule m='%d'") % (*it)->molecule_index).str();
+					for (std::size_t d = 0; d < DIM; d++) {
+						f << (boost::format(" t%d='%g'") % d % ((*it)->t[d]/unit_length)).str();
+					}
+					f << " />\n";
+					++it;
 				}
-				f << " />\n";
-				++it;
-			}
-		f << "\t\t\t</ghost_molecules>\n";
-
+			f << "\t\t\t</ghost_molecules>\n";
+		}
 
 		f << "\t\t</timestep>\n";
 	}

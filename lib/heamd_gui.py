@@ -60,6 +60,8 @@ try:
 
 	import pyqtgraph as pg
 	import pyqtgraph.opengl as gl
+	import pyqtgraph.exporters
+	import pyqtgraph.functions
 	from OpenGL.GL import *
 
 	pg.setConfigOption('background', 'w')
@@ -869,6 +871,66 @@ class PlotWidget(QtWidgets.QWidget):
 		return
 
 
+class MyGLViewWidget(gl.GLViewWidget):
+
+	def setLabels(self, labels):
+		self.labels = labels
+		print(labels)
+
+	def readQImage(self):
+		"""
+		Read the current buffer pixels out as a QImage.
+		"""
+		w = self.width()
+		h = self.height()
+		self.repaint()
+		pixels = np.empty((h, w, 4), dtype=np.ubyte)
+		pixels[:] = 128
+		pixels[...,0] = 50
+		pixels[...,3] = 255
+
+		# TODO: how to compute the x, y offsett???
+		glReadPixels(11, 39, w, h, GL_RGBA, GL_UNSIGNED_BYTE, pixels)
+
+		pixels = pixels[::-1].copy() # flip vertical
+		pixels = np.swapaxes(pixels, 0, 1)
+
+		qimg = pyqtgraph.functions.makeQImage(pixels)
+		return qimg
+
+	def paintGL(self, *args, **kwds):
+		gl.GLViewWidget.paintGL(self, *args, **kwds)
+
+		app = QtWidgets.QApplication.instance()
+		font = app.font()
+		painter = QtGui.QPainter(self)
+		painter.setFont(font)
+		painter.setPen(QtGui.QColor(0, 0, 0))
+
+		maxsize = 0
+		for key, color, size in self.labels:
+			maxsize = max(size, maxsize)
+
+		fm = QtGui.QFontMetrics(font)
+
+		h = fm.height()
+		y = 2*h
+		x = painter.device().width() - 2.7*h
+
+		painter.setBrush(QtCore.Qt.white)
+		painter.drawRect(x - 1.5*h, y - 1.5*h, 3.7*h, len(self.labels)*h*1.5 + h);
+
+		for key, color, size in self.labels:
+			s = h*size/maxsize
+			painter.setBrush(QtGui.QColor(*color))
+			painter.drawEllipse(x - h + 0.5*(h - s), y - h + 0.5*(h - s) + 0.25*s, s, s);
+			painter.drawText(x + 0.5*h, y, key);
+			y += h*1.5
+
+		painter.end()
+
+
+
 class ResultWidget(QtWidgets.QWidget):
 
 	def __init__(self, xml, xml_root, resultText, result_xml_root, other = None, parent = None):
@@ -960,12 +1022,12 @@ class ResultWidget(QtWidgets.QWidget):
 
 		self.writeVTKButton = QtWidgets.QToolButton()
 		self.writeVTKButton.setText("Write VTK")
-		self.writeVTKButton.clicked.connect(self.writeVTK)
+		#self.writeVTKButton.clicked.connect(self.writeVTK)
 		hbox.addWidget(self.writeVTKButton)
 	
 		self.writePNGButton = QtWidgets.QToolButton()
 		self.writePNGButton.setText("Write PNG")
-		self.writePNGButton.clicked.connect(self.writePNG)
+		#self.writePNGButton.clicked.connect(self.writePNG)
 		hbox.addWidget(self.writePNGButton)
 		
 		self.viewResultDataButton = QtWidgets.QToolButton()
@@ -1006,6 +1068,12 @@ class ResultWidget(QtWidgets.QWidget):
 		hbox.addWidget(self.timestepLabel)
 		vbox.addLayout(hbox)
 
+		hbox = QtWidgets.QHBoxLayout()
+		hbox.setContentsMargins(5, 5, 5, 5)
+		saveButton = QtWidgets.QPushButton("&Save")
+		saveButton.clicked.connect(self.savePNG)
+		hbox.addWidget(saveButton)
+		vbox.addLayout(hbox)
 
 		self.ghostCheck = QtWidgets.QCheckBox("show ghosts")
 		if (other != None):
@@ -1035,7 +1103,12 @@ class ResultWidget(QtWidgets.QWidget):
 
 		# init rve rendering
 
-		self.rve_view = gl.GLViewWidget()
+		self.rve_view = MyGLViewWidget()
+		labels = []
+		for k, color in self.element_color_map.items():
+			labels.append((k, color, self.element_size_map[k]))
+		self.rve_view.setLabels(labels)
+
 		azimuth = -45
 		elevation = -45
 		distance = 2
@@ -1051,9 +1124,10 @@ class ResultWidget(QtWidgets.QWidget):
 		self.rve_view.opts['center'] = QtGui.QVector3D(*self.cell_center3)
 		#self.rve_view.setCameraPosition(pos=QtGui.QVector3D(*self.cell_center3),
 		#	distance=distance*max(self.cell_size), azimuth=azimuth, elevation=elevation)
+		self.rve_view.setBackgroundColor("w")
 		self.rve_view.show()
 
-		q = GLBoxItem()
+		q = GLBoxItem(color="k")
 		q.scale(*self.cell_size3)
 		q.translate(*self.cell_origin3)
 		self.rve_view.addItem(q)
@@ -1074,8 +1148,10 @@ class ResultWidget(QtWidgets.QWidget):
 
 
 
+
 		wvbox.addWidget(self.rve_view)
 
+		
 
 		wrap = QtWidgets.QWidget()
 		wrap.setStyleSheet("background-color:%s;" % pal.base().color().name());
@@ -1092,8 +1168,17 @@ class ResultWidget(QtWidgets.QWidget):
 		T = []
 		T_control = []
 		P = []
+		dt = []
 		for ts in self.timesteps:
 			stats = ts.find("stats")
+
+			"""
+			_dt = float(ts.attrib['dt']);
+			if _dt == 0:
+				continue
+			dt.append(1e-12*_dt);
+			"""
+			
 			time.append(1e-12*float(ts.attrib['t']));
 			T_control.append(float(ts.attrib['T']));
 			Ekin.append(float(stats.find("Ekin").text));
@@ -1103,8 +1188,6 @@ class ResultWidget(QtWidgets.QWidget):
 			P.append(float(stats.find("P").text));
 			MV.append(float(stats.find("MV").text));
 
-		"""
-		"""
 
 		pg.setConfigOptions(antialias=True)
 
@@ -1228,6 +1311,8 @@ class ResultWidget(QtWidgets.QWidget):
 			ts = self.timesteps[timeSlider_RDF.value()]
 			molecules = ts.find("molecules")
 			ghost_molecules = ts.find("ghost_molecules")
+			if ghost_molecules is None:
+				ghost_molecules = {}
 
 			x = np.zeros((len(molecules), 3))
 			xg = np.zeros((len(ghost_molecules), 3))
@@ -1293,6 +1378,23 @@ class ResultWidget(QtWidgets.QWidget):
 		update_RDF()
 
 		tab.addTab(win, "RDF")
+
+
+
+		if len(dt) > 0:
+			win = PlotWidget(result_xml_root, None)
+
+			plot = win.addPlot(xtitle="Timestep")
+			plot.setLabel('left', 'Timestep', units='s')
+			plot.setLabel('bottom', 'Time', units='s')
+			#plot.addLegend()
+			plot.showGrid(x=True, y=True)
+			plot.plot(time, np.array(dt), pen=(0,0,255), name="dt")
+			win.addSmoothControls(plot)
+
+			win.addCursors(plot)
+
+			tab.addTab(win, "Timestep")
 
 
 
@@ -1436,25 +1538,16 @@ class ResultWidget(QtWidgets.QWidget):
 		w.exec_()
 
 
-	def writePNG(self):
-		
+	def savePNG(self):
+	
 		filename, _filter = QtWidgets.QFileDialog.getSaveFileName(self, "Save PNG", os.getcwd(), "PNG Files (*.png)")
 		if (filename == ""):
 			return
 		filename, ext = os.path.splitext(filename)
 		filename += ".png"
 		
-		with codecs.open(template_dest, mode="w", encoding="utf-8") as f:
-			f.write(template)
-
-		if False:
-			subprocess.call(["pdflatex", template_dest], cwd=os.path.dirname(filename))
-
-			pdf, ext = os.path.splitext(filename)
-			pdf += ".pdf"
-			subprocess.Popen(["okular", pdf])
-
-		#scipy.misc.imsave(filename, image) #, 'PNG')
+		img = self.rve_view.readQImage()
+		img.save(filename)
 
 	def ghostCheckChanged(self):
 		self.updateTimestep()
@@ -1498,6 +1591,8 @@ class ResultWidget(QtWidgets.QWidget):
 
 		if show_ghost:
 			ghost_molecules = ts.find("ghost_molecules")
+			if ghost_molecules is None:
+				ghost_molecules = {}
 
 		n = len(molecules) + len(ghost_molecules)
 		self.position_data = np.zeros((n, 3))
@@ -2995,6 +3090,7 @@ class MainWindow(QtWidgets.QMainWindow):
 		except:
 			xml_root = None
 			print(traceback.format_exc())
+			return
 
 		try:
 			result_file = xml_root.find("result_filename").text
