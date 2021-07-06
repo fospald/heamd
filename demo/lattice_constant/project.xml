@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="utf-8"?>
+<settings>
+	<title>Lattice parameter</title>
+	
+	<dim>3</dim>
+	
+	<result_filename>results.xml</result_filename>
+
+	<!-- Note on units:
+		length unit: Bohr radius a0 = 5.29e-11 m
+		mass unit: electron mass m_e =  9.109e-31 kg
+		charge unit: e = 1.60e-19 C
+		angular momentum: reduced Planck h = 6.626e-34 Js 
+		energy unit: Hartree E_h = 4.36e-18 J
+		time: a.t.u. = h/E_h = 2.419e-17 s
+	-->
+	
+	<potential type="sutton-chen" />
+	<potential type="embedded-atom" />
+	
+	<!-- interpolate potential by cubic spline to speed up evaluation -->
+	<interpolate_potential>0</interpolate_potential>
+
+	<!-- read elements from database -->
+	<element_db>../../data/elements.xml</element_db>
+	
+	<!-- modify/add elements -->
+	<elements>
+		<element id="Al" color="#ff0000" />
+		<element id="Fe" color="#00ff00" />
+		<element id="Co" color="#0000ff" />
+		<element id="Ni" color="#0f000f" />
+		<element id="Ti" color="#0f0f0f" />
+	</elements>
+	
+	<variables>
+		<L type="float" value="3.5" />
+		<m type="int" value="5" />
+	</variables>
+	
+	<!-- RVE dimensions -->
+	<cell type="cubic">
+		<a0>L</a0>
+		<a1>L</a1>
+		<a2>L</a2>
+	</cell>
+	
+	<!-- random seed -->
+	<seed>0</seed>
+
+	<!-- number of atoms -->
+	<n>0</n>
+	
+	<initial_position>fcc</initial_position>
+	<initial_velocity>boltzmann</initial_velocity>
+	<lattice_multiplier>m</lattice_multiplier>
+	
+	<!-- periodic boundary conditions -->
+	<periodic_bc>1</periodic_bc>
+	
+	<!-- volume fractions -->
+	<fractions>
+		<fraction element="Al" value="1" />
+	</fractions>
+		<fraction element="Al" value="0.2" />
+		<fraction element="Fe" value="0.2" />
+		<fraction element="Co" value="0.2" />
+		<fraction element="Ni" value="0.2" />
+		<fraction element="Ti" value="0.2" />
+
+	<!-- xut-off radius, max neighbour distance for force calculations, relative value to the RVE size max(dx,dy,dz)
+	     computed automatically if < 0 -->
+	<nn_radius>2*L</nn_radius>
+	
+	<!-- number of neighbour atoms in each direction to compute dmax, if not provided -->
+	<nn_levels>1</nn_levels>
+
+	<!-- when to update next neighbours -->
+	<nn_update>always</nn_update>
+	<nn_update>initial</nn_update>
+
+	<!-- thermodynamic state variables and simulation time
+	     if values for pressure or temperature are not provided
+	     values of the last time step are used
+	     if initial temperature or pressure it will be calculated from the other variable
+		-->
+	<steps>
+		<step t="-2" T="300" enforce_T="1" />
+		<step t="-1" enforce_mean_T="1" />
+		<step t="0" />
+		<step t="1" />
+	</steps>
+
+	<!-- automatic time step size based on maximal allowed molecule displacement per time step -->
+	<ds_max>0.05</ds_max>
+
+	<time_step_mode>ds_max</time_step_mode>
+	
+	<!-- fixed time step size -->
+	<dt>0.01</dt>
+
+	<!-- data storage interval in multiple of dt -->
+	<store_interval>0</store_interval>
+	
+	<!-- number of data storage points evenly spaced accross time -->
+	<store_number>100</store_number>
+	
+	<!-- number of OpenMP threads -->
+	<num_threads>1</num_threads>
+
+	<!-- actions to perform -->
+	<actions>
+		<run />
+		<print_timings />
+	</actions>
+
+</settings>

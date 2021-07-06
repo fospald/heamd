@@ -130,9 +130,7 @@ multigrid improvements:
 #include <boost/date_time/posix_time/posix_time.hpp>
 #include <boost/date_time/posix_time/posix_time_io.hpp>
 #include <boost/predef/other/endian.h>
-#include <boost/math/special_functions/erf.hpp>
-#include <boost/math/special_functions/ellint_rj.hpp>
-#include <boost/math/special_functions/ellint_rf.hpp>
+#include <boost/math/interpolators/cubic_b_spline.hpp>
 
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/xml_parser.hpp>
@@ -1455,6 +1453,7 @@ public:
 	ublas::c_vector<T, DIM> v;	// velocity
 	T U;				// potential energy
 	boost::shared_ptr<Element<T, DIM> > element;	// base element
+	std::vector<int> nn_indices;
 };
 
 
@@ -1702,8 +1701,267 @@ public:
 		const std::vector<T>& dist2,
 		const std::vector< ublas::c_vector<T, DIM> >& dir,
 		std::vector< boost::shared_ptr< Molecule<T, DIM> > >& molecules,
-		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules) = 0;
+		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules,
+		std::vector<T>& ip_params) = 0;
+
+	virtual std::size_t num_interpolation_params() const = 0;
+	virtual void U_from_interpolation_params(Molecule<T, DIM>& m, const std::vector<T>& params) const = 0;
+	virtual T dU_from_interpolation_params(Molecule<T, DIM>& m, const std::vector<T>& params, const std::vector<T>& dparams) const = 0;
 };
+
+
+template <typename T, int DIM>
+class InterpolatedPotential : public PairPotential<T, DIM>
+{
+protected:
+	typedef struct
+	{
+		std::vector< boost::shared_ptr< boost::math::cubic_b_spline<T> > > ip;
+		std::vector< std::vector<T> > f;
+	} InterpolationParams;
+
+	typedef std::map<std::string, boost::shared_ptr<InterpolationParams> > ParamMap1;
+	typedef std::map<std::string, ParamMap1> ParamMap2;
+	
+	std::list< boost::shared_ptr<InterpolationParams> > _param_list;
+	ParamMap2 _param_map;
+	boost::shared_ptr< PairPotential<T, DIM> > _potential;
+	T _r_min;
+	T _r_max;
+	std::size_t _n;
+
+	void initInterpolators(std::list< boost::shared_ptr<Element<T,DIM> > >& elements)
+	{
+		auto it1 = elements.begin();
+		while (it1 != elements.end())
+		{
+			auto it2 = elements.begin();
+			while (it2 != elements.end())
+			{
+				addInterpolator(*it1, *it2);
+				++it2;
+			}
+
+			++it1;
+		}
+	}
+
+	void addInterpolator(boost::shared_ptr<Element<T,DIM> > el1, boost::shared_ptr<Element<T,DIM> > el2)
+	{
+		boost::shared_ptr<InterpolationParams> params;
+
+		typename ParamMap2::iterator parami1 = _param_map.find(el1->id);
+		if (parami1 == _param_map.end()) {
+			_param_map.insert(typename ParamMap2::value_type(el1->id, ParamMap1()));
+			parami1 = _param_map.find(el1->id);
+		}
+		typename ParamMap1::iterator parami2 = parami1->second.find(el2->id);
+		if (parami2 != parami1->second.end()) {
+			return;
+		}
+		
+		params.reset(new InterpolationParams());
+		parami1->second.insert(typename ParamMap1::value_type(el2->id, params));
+		parami2 = parami1->second.find(el2->id);
+
+		std::vector<std::size_t> nn_indices(1);
+		std::vector<int> nmolecule_indices(1);
+		std::vector<T> dist2(1);
+		std::vector< ublas::c_vector<T, DIM> > dir(1);
+		std::vector< boost::shared_ptr< Molecule<T, DIM> > > molecules;
+		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > > gmolecules;
+
+		boost::shared_ptr< Molecule<T, DIM> > m1, m2;
+
+		m1.reset(new Molecule<T, DIM>());
+		m1->element = el2;
+		m2.reset(new Molecule<T, DIM>());
+		m2->element = el1;
+		molecules.push_back(m1);
+		molecules.push_back(m2);
+		
+		nn_indices[0] = 0;
+		nmolecule_indices[0] = 0;
+		std::fill(dist2.begin(), dist2.end(), (T)0);
+		std::fill(m1->x.begin(), m1->x.end(), (T)0);
+		std::fill(m2->x.begin(), m2->x.end(), (T)0);
+		std::fill(dir[0].begin(), dir[0].end(), (T)0);
+
+		std::size_t np = _potential->num_interpolation_params();
+		std::vector< std::vector<T> > f(np);
+		std::vector<T> ip_params(np);
+		T dr = (_r_max - _r_min) / (_n - 1);
+
+		for (std::size_t i = 0; i < _n; i++)
+		{
+			T r = _r_min + dr*i;
+			m2->x[0] = r;
+			dir[0][0] = -r;
+			dist2[0] = r*r;
+			_potential->compute(1, nn_indices, nmolecule_indices, dist2, dir, molecules, gmolecules, ip_params);
+
+			for (std::size_t k = 0; k < np; k++) {
+				f[k].push_back(ip_params[k]);
+			}
+		}
+
+		params->f = f;
+		params->ip.resize(np);
+
+		// check if we have the same interpolation function
+		// if so then use it to save cache memory
+		auto it = _param_list.begin();
+		while (it != _param_list.end())
+		{
+			for (std::size_t k = 0; k < np; k++) {
+				if (params->ip[k]) continue;
+				if ((*it)->f[k] == f[k]) {
+					params->ip[k] = (*it)->ip[k];
+				}
+			}
+			++it;
+		}
+
+		for (std::size_t k = 0; k < np; k++) {
+			//LOG_COUT << "id=" << el1->id << " rmin=" << _r_min << " dr=" << dr << " " << f[k][0] << " " << f[k][_n-1] << std::endl;
+			if (params->ip[k]) continue;
+			params->ip[k].reset(new boost::math::cubic_b_spline<T>(f[k].begin(), f[k].end(), _r_min, dr));
+		}
+
+		if (0) {
+			std::string filename = "potential_" + el1->id + "_" + el2->id + ".csv";
+			std::ofstream s;
+			s.open(filename);
+			for (std::size_t i = 0; i < _n; i++) {
+				T r = _r_min + dr*i;
+				s << (boost::format("%d\t%g") % i % (r/unit_length)).str();
+				for (std::size_t k = 0; k < np; k++) {
+					s << (boost::format("\t%g\t%g\t%g") % (f[k][i]) % ((*(params->ip[k]))(r)) % ((*(params->ip[k])).prime(r))).str();
+				}
+				s << "\n";
+			}
+			s.close();
+		}
+
+
+		_param_list.push_back(params);
+	}
+
+	inline boost::shared_ptr<InterpolationParams> getInterpolator(boost::shared_ptr<Element<T,DIM> > el1, boost::shared_ptr<Element<T,DIM> > el2)
+	{
+		return _param_map[el1->id][el2->id];
+	}
+
+public:
+	InterpolatedPotential(boost::shared_ptr< PairPotential<T, DIM> > potential, T r_min, T r_max, std::size_t n, std::list< boost::shared_ptr<Element<T,DIM> > >& elements)
+	{
+		_potential = potential;
+		_r_min = r_min;
+		_r_max = r_max;
+		_n = n;
+		initInterpolators(elements);
+	}
+
+	void readSettings(const ptree::ptree& pt)
+	{
+	}
+
+	void compute(
+		std::size_t mi,
+		const std::vector<std::size_t>& nn_indices,
+		const std::vector<int>& nmolecule_indices,
+		const std::vector<T>& dist2,
+		const std::vector< ublas::c_vector<T, DIM> >& dir,
+		std::vector< boost::shared_ptr< Molecule<T, DIM> > >& molecules,
+		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules,
+		std::vector<T>& ip_params)
+	{
+		ublas::c_vector<T, DIM> F;
+		ublas::c_vector<T, DIM> F_sum;
+
+		std::size_t np = num_interpolation_params();
+
+		std::fill(F_sum.begin(), F_sum.end(), (T)0);
+		std::fill(ip_params.begin(), ip_params.end(), (T)0);
+		std::vector<T> dip_params(np);
+		
+		auto nn = nn_indices.begin();
+		while (nn != nn_indices.end())
+		{
+			int mi0 = nmolecule_indices[*nn];
+
+			if (mi0 < 0) {
+				mi0 = gmolecules[-1 - mi0]->molecule_index;
+			}
+
+			boost::shared_ptr<InterpolationParams> params = getInterpolator(molecules[mi]->element, molecules[mi0]->element);
+
+			T r = std::sqrt(dist2[*nn]);
+
+			if (r < _r_min || r > _r_max) {
+				LOG_COUT << "interpolation outside" << r << " " << _r_min << " " << _r_max << std::endl;
+			}
+
+			for (std::size_t k = 0; k < np; k++) {
+				ip_params[k] += (*(params->ip[k]))(r);
+			}
+
+			++nn;
+		}
+
+		_potential->U_from_interpolation_params(*molecules[mi], ip_params);
+		
+		nn = nn_indices.begin();
+		while (nn != nn_indices.end())
+		{
+			int mi0 = nmolecule_indices[*nn];
+
+			if (mi0 < 0) {
+				mi0 = gmolecules[-1 - mi0]->molecule_index;
+			}
+
+			boost::shared_ptr<InterpolationParams> params = getInterpolator(molecules[mi]->element, molecules[mi0]->element);
+
+			T r = std::sqrt(dist2[*nn]);
+
+			for (std::size_t k = 0; k < np; k++) {
+				dip_params[k] = (*(params->ip[k])).prime(r);
+			}
+
+			T dU = _potential->dU_from_interpolation_params(*molecules[mi], ip_params, dip_params);
+
+			F = (-dU/r)*dir[*nn];
+
+			#pragma omp critical
+			molecules[mi0]->F += F;
+
+			F_sum += F;
+
+			++nn;
+		}
+
+		#pragma omp critical
+		molecules[mi]->F -= F_sum;
+	}
+
+	std::size_t num_interpolation_params() const
+	{
+		return _potential->num_interpolation_params();
+	}
+
+	void U_from_interpolation_params(Molecule<T, DIM>& m, const std::vector<T>& params) const
+	{
+		_potential->U_from_interpolation_params(m, params);
+	}
+
+	T dU_from_interpolation_params(Molecule<T, DIM>& m, const std::vector<T>& params, const std::vector<T>& dparams) const
+	{
+		return _potential->dU_from_interpolation_params(m, params, dparams);
+	}
+
+};
+
+
 
 
 template <typename T, int DIM>
@@ -1760,6 +2018,16 @@ protected:
 		}
 	}
 
+	inline const ElementParams& getParams(std::string& id) const
+	{
+		typename ParamMap::const_iterator parami = _param_map.find(id);
+		if (parami == _param_map.end()) {
+			BOOST_THROW_EXCEPTION(std::runtime_error((boost::format("No EAM parameters for element id '%s'") % id).str()));
+		}
+		return *(parami->second);
+	}
+
+
 public:
 	void readSettings(const ptree::ptree& pt)
 	{
@@ -1797,14 +2065,15 @@ public:
 		}
 	}
 
-	void compute(
+	void compute_(
 		std::size_t mi,
 		const std::vector<std::size_t>& nn_indices,
 		const std::vector<int>& nmolecule_indices,
 		const std::vector<T>& dist2,
 		const std::vector< ublas::c_vector<T, DIM> >& dir,
 		std::vector< boost::shared_ptr< Molecule<T, DIM> > >& molecules,
-		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules)
+		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules,
+		std::vector<T>& ip_params)
 	{
 		//LOG_COUT << "compute" << std::endl;
 		//LOG_COUT << "nn " << (*nn) << std::endl;
@@ -1972,6 +2241,199 @@ public:
 
 		//LOG_COUT << "a " << a[0] << " " << a[1] << " " << a[2] << std::endl;
 	}
+
+
+	void compute(
+		std::size_t mi,
+		const std::vector<std::size_t>& nn_indices,
+		const std::vector<int>& nmolecule_indices,
+		const std::vector<T>& dist2,
+		const std::vector< ublas::c_vector<T, DIM> >& dir,
+		std::vector< boost::shared_ptr< Molecule<T, DIM> > >& molecules,
+		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules,
+		std::vector<T>& ip_params)
+	{
+		//LOG_COUT << "compute" << std::endl;
+		//LOG_COUT << "nn " << (*nn) << std::endl;
+
+		// potential energy
+
+		// get parameters for element (we assume all elements are the same in this model)
+		const ElementParams& p = getParams(molecules[mi]->element->id);
+
+
+		//LOG_COUT << "mi: " << mi << std::endl;
+		
+		T sum_phi = 0, rho = 0;
+		auto nn = nn_indices.begin();
+		while (nn != nn_indices.end())
+		{
+			int mi0 = nmolecule_indices[*nn];
+
+			if (mi0 < 0) {
+				mi0 = gmolecules[-1 - mi0]->molecule_index;
+			}
+
+			const ElementParams& p0 = getParams(molecules[mi0]->element->id);
+
+			T r = std::sqrt(dist2[*nn]);
+
+			//LOG_COUT << "nn " << (*nn) << " r: " << r << std::endl;
+
+			T r_by_re = r/p.re;
+			T r_by_re0 = r/p0.re;
+
+			// electron density
+			rho += p0.fe*this->densFunc(r_by_re0, p0.beta, p0.ramda1);
+
+			// pair potential sum
+
+			T da = this->densFunc(r_by_re0, p0.beta, p0.ramda);
+			T fa = p0.fe*da;
+			T phi_aa = p0.A*this->densFunc(r_by_re0, p0.alpha, p0.cai) - p0.B*da;
+
+			T db = this->densFunc(r_by_re, p.beta, p.ramda);
+			T fb = p.fe*db;
+			T phi_bb = p.A*this->densFunc(r_by_re, p.alpha, p.cai) - p.B*db;
+
+			sum_phi += 0.5*(fb/fa*phi_aa + fa/fb*phi_bb);
+			
+			++nn;
+		}
+
+		ip_params[0] = rho;
+		ip_params[1] = sum_phi;
+		
+		U_from_interpolation_params(*molecules[mi], ip_params);
+	
+		// accelerations
+
+		ublas::c_vector<T, DIM> F;
+		ublas::c_vector<T, DIM> F_sum;
+		std::vector<T> dip_params(2);
+
+		std::fill(F_sum.begin(), F_sum.end(), (T)0);
+
+		nn = nn_indices.begin();
+		while (nn != nn_indices.end())
+		{
+			// compute potential gradient w.r.t. molecules[nn]->x
+
+			int mi0 = nmolecule_indices[*nn];
+
+			if (mi0 < 0) {
+				mi0 = gmolecules[-1 - mi0]->molecule_index;
+			}
+
+			// get parameters for element
+			const ElementParams& p0 = getParams(molecules[mi0]->element->id);
+
+			T r = std::sqrt(dist2[*nn]);
+			T r_by_re = r/p.re;
+			T dr_by_re = 1.0/p.re;
+			T r_by_re0 = r/p0.re;
+			T dr_by_re0 = 1.0/p0.re;
+
+			// electron density
+			dip_params[0] = p0.fe*this->ddensFunc(r_by_re0, p0.beta, p0.ramda1)*dr_by_re0; // drho
+
+			// pair potential sum
+
+			T da = this->densFunc(r_by_re0, p0.beta, p0.ramda);
+			T dda = this->ddensFunc(r_by_re0, p0.beta, p0.ramda)*dr_by_re0;
+			T fa = p0.fe*da;
+			T dfa = p0.fe*dda;
+			T phi_aa = p0.A*this->densFunc(r_by_re0, p0.alpha, p0.cai) - p0.B*da;
+			T dphi_aa = p0.A*this->ddensFunc(r_by_re0, p0.alpha, p0.cai)*dr_by_re0 - p0.B*dda;
+
+			T db = this->densFunc(r_by_re, p.beta, p.ramda);
+			T ddb = this->ddensFunc(r_by_re, p.beta, p.ramda)*dr_by_re;
+			T fb = p.fe*db;
+			T dfb = p.fe*ddb;
+			T phi_bb = p.A*this->densFunc(r_by_re, p.alpha, p.cai) - p.B*db;
+			T dphi_bb = p.A*this->ddensFunc(r_by_re, p.alpha, p.cai)*dr_by_re - p.B*ddb;
+
+			dip_params[1] = 0.5*(dfb/fa*phi_aa + dfa/fb*phi_bb + fb/fa*dphi_aa + fa/fb*dphi_bb - dfa*fb/(fa*fa)*phi_aa - fa*dfb/(fb*fb)*phi_bb);	// dsum_phi
+
+			T dU = dU_from_interpolation_params(*molecules[mi], ip_params, dip_params);
+
+			F = (-(dU)/r)*dir[*nn];
+
+			//LOG_COUT << "F: " << F[0] << " " << F[1] << " " << F[2]  << " " << mi0 << std::endl;
+
+			#pragma omp critical
+			molecules[mi0]->F += F;
+
+			F_sum += F;
+
+			++nn;
+		}
+
+		#pragma omp critical
+		molecules[mi]->F -= F_sum;
+
+		//LOG_COUT << "a " << a[0] << " " << a[1] << " " << a[2] << std::endl;
+	}
+
+	std::size_t num_interpolation_params() const
+	{
+		return 2;
+	}
+
+	void U_from_interpolation_params(Molecule<T, DIM>& m, const std::vector<T>& params) const
+	{
+		const ElementParams& p = getParams(m.element->id);
+
+		// embedding energy
+		T rho = params[0];
+		T FE;
+		if (rho < p.rhoin) {
+			T c = rho/p.rhoin - 1.0;
+			FE = p.Fi0 + c*(p.Fi1 + c*(p.Fi2 + c*p.Fi3));
+		}
+		else if (rho < p.rhoout)
+		{
+			T Fm33 = (rho < p.rhoe) ? p.Fm3 : p.Fm4;
+			T c = rho/p.rhoe - 1.0;
+			FE = p.Fm0 + c*(p.Fm1 + c*(p.Fm2 + c*Fm33));
+		}
+		else {
+			T c = rho/p.rhos;
+			FE = p.Fn*(1.0 - p.fnn*std::log(c))*std::pow(c, p.fnn);
+		}
+
+		// EAM potential
+		m.U = 0.5*params[1] + FE;
+	}
+
+	T dU_from_interpolation_params(Molecule<T, DIM>& m, const std::vector<T>& params, const std::vector<T>& dparams) const
+	{
+		const ElementParams& p = getParams(m.element->id);
+
+		// embedding energy
+		T rho = params[0];
+		T drho = dparams[0];
+		T dFE;
+		if (rho < p.rhoin) {
+			T c = rho/p.rhoin - 1.0;
+			T dc = drho/p.rhoin;
+			dFE = dc*(p.Fi1 + c*(2*p.Fi2 + c*(3*p.Fi3)));
+		}
+		else if (rho < p.rhoout)
+		{
+			T Fm33 = (rho < p.rhoe) ? p.Fm3 : p.Fm4;
+			T c = rho/p.rhoe - 1.0;
+			T dc = drho/p.rhoe;
+			dFE = dc*(p.Fm1 + c*(2*p.Fm2 + c*(3*Fm33)));
+		}
+		else {
+			T c = rho/p.rhos;
+			T dc = drho/p.rhos;
+			dFE = dc*(-p.Fn*p.fnn*p.fnn*std::log(c)*std::pow(c, p.fnn-1));
+		}
+
+		return 0.5*dparams[1] + dFE;
+	}
 };
 
 
@@ -1997,6 +2459,15 @@ protected:
 
 		_param_map.insert(typename ParamMap::value_type(element_name, params));
 		LOG_COUT << "sc " << element_name << std::endl;
+	}
+
+	inline const ElementParams& getParams(std::string& id) const
+	{
+		typename ParamMap::const_iterator parami = _param_map.find(id);
+		if (parami == _param_map.end()) {
+			BOOST_THROW_EXCEPTION(std::runtime_error((boost::format("No SC parameters for element id '%s'") % id).str()));
+		}
+		return *(parami->second);
 	}
 
 public:
@@ -2036,14 +2507,16 @@ public:
 		}
 	}
 
-	void compute(
+
+	void compute_(
 		std::size_t mi,
 		const std::vector<std::size_t>& nn_indices,
 		const std::vector<int>& nmolecule_indices,
 		const std::vector<T>& dist2,
 		const std::vector< ublas::c_vector<T, DIM> >& dir,
 		std::vector< boost::shared_ptr< Molecule<T, DIM> > >& molecules,
-		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules)
+		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules,
+		std::vector<T>& ip_params)
 	{
 		// get parameters for element (we assume all elements are the same in this model)
 		typename ParamMap::iterator parami = _param_map.find(molecules[mi]->element->id);
@@ -2113,6 +2586,100 @@ public:
 
 		//LOG_COUT << "a " << a[0] << " " << a[1] << " " << a[2] << std::endl;
 	}
+
+	void compute(
+		std::size_t mi,
+		const std::vector<std::size_t>& nn_indices,
+		const std::vector<int>& nmolecule_indices,
+		const std::vector<T>& dist2,
+		const std::vector< ublas::c_vector<T, DIM> >& dir,
+		std::vector< boost::shared_ptr< Molecule<T, DIM> > >& molecules,
+		std::vector< boost::shared_ptr< GhostMolecule<T, DIM> > >& gmolecules,
+		std::vector<T>& ip_params)
+	{
+		// get parameters for element (we assume all elements are the same in this model)
+		const ElementParams& p = getParams(molecules[mi]->element->id);
+
+		// potential energy
+
+		T sum_V = 0, sum_rho = 0;
+		auto nn = nn_indices.begin();
+		while (nn != nn_indices.end())
+		{
+			//LOG_COUT << "nn " << (*nn) << std::endl;
+
+			T a_by_r = p.a/std::sqrt(dist2[*nn]);
+
+			sum_V += std::pow(a_by_r, p.n);
+			sum_rho += std::pow(a_by_r, p.m);
+
+			++nn;
+		}
+
+		ip_params[0] = sum_V;
+		ip_params[1] = sum_rho;
+		U_from_interpolation_params(*molecules[mi], ip_params);
+
+		// accelerations
+
+		ublas::c_vector<T, DIM> F;
+		ublas::c_vector<T, DIM> F_sum;
+		std::vector<T> dip_params(2);
+
+		std::fill(F_sum.begin(), F_sum.end(), (T)0);
+
+		nn = nn_indices.begin();
+		while (nn != nn_indices.end())
+		{
+			int mi0 = nmolecule_indices[*nn];
+
+			if (mi0 < 0) {
+				mi0 = gmolecules[-1 - mi0]->molecule_index;
+			}
+
+			// compute potential gradient w.r.t. molecules[nn]->x
+
+			T r = std::sqrt(dist2[*nn]);
+			T a_by_r = p.a/r;
+			T a_by_r2 = a_by_r/r;
+
+			dip_params[0] = -p.n*std::pow(a_by_r, p.n-1)*a_by_r2; // dsum_V
+			dip_params[1] = -p.m*std::pow(a_by_r, p.m-1)*a_by_r2; // dsum_rho
+
+			T dU = dU_from_interpolation_params(*molecules[mi], ip_params, dip_params);
+
+			F = (-(dU)/r)*dir[*nn];
+
+			#pragma omp critical
+			molecules[mi0]->F += F;
+
+			F_sum += F;
+
+			++nn;
+		}
+
+		#pragma omp critical
+		molecules[mi]->F -= F_sum;
+	}
+
+	std::size_t num_interpolation_params() const
+	{
+		return 2;
+	}
+
+	void U_from_interpolation_params(Molecule<T, DIM>& m, const std::vector<T>& params) const
+	{
+		const ElementParams& p = getParams(m.element->id);
+
+		m.U = p.eps*(0.5*params[0] - p.c*std::sqrt(params[1]));
+	}
+
+	T dU_from_interpolation_params(Molecule<T, DIM>& m, const std::vector<T>& params, const std::vector<T>& dparams) const
+	{
+		const ElementParams& p = getParams(m.element->id);
+
+		return p.eps*0.5*(dparams[0] - p.c/std::sqrt(params[1])*dparams[1]);
+	}
 };
 
 
@@ -2129,6 +2696,8 @@ protected:
 	bool _shuffle_elements;
 	bool _periodic_bc;
 	bool _write_ghosts;
+	bool _interpolate_potential;
+	std::size_t _interpolate_potential_points;
 	std::string _potential_type;
 	std::string _cell_type;
 	std::string _result_filename;
@@ -2150,6 +2719,7 @@ protected:
 	std::array<std::size_t, DIM> _vdims;
 	T _nn_levels;	// relative number of nearst neighbours included in the Verlet map
 	T _nn_radius, _nn_radius2;
+	std::string _nn_update;
 
 	T _ds_max;
 	T _tau_T;
@@ -2166,6 +2736,8 @@ protected:
 	T _stats_Epot;
 	ublas::c_vector<T, DIM> _stats_mv;
 	T _stats_dt;
+	T _stats_t;
+	std::size_t _stats_interval;
 
 	// callbacks
 	TimestepCallback _timestep_callback;
@@ -2178,12 +2750,15 @@ public:
 		_nn_radius = -1.0;
 		_nn_radius2 = 1.0;
 		_nn_levels = 1.0;
+		_nn_update = "always";
 		_result_filename = "results.xml";
 		_element_db_filename = "";
 		_callback_interval = 100;
 		_store_interval = 0;
 		_store_number = 500;
 		_periodic_bc = true;
+		_interpolate_potential = false;
+		_interpolate_potential_points = 200;
 		_write_ghosts = false;
 		_zero_mean = true;
 		_initial_position = "fcc";
@@ -2214,6 +2789,8 @@ public:
 		_initial_velocity = pt_get(pt, "initial_velocity", _initial_velocity);
 		_lattice_multiplier = pt_get(pt, "lattice_multiplier", _lattice_multiplier);
 		_periodic_bc = pt_get(pt, "periodic_bc", _periodic_bc);
+		_interpolate_potential = pt_get(pt, "interpolate_potential", _interpolate_potential);
+		_interpolate_potential_points = pt_get(pt, "interpolate_potential_points", _interpolate_potential_points);
 		_write_ghosts = pt_get(pt, "write_ghosts", _write_ghosts);
 		_zero_mean = pt_get(pt, "zero_mean", _zero_mean);
 		_result_filename = pt_get(pt, "result_filename", _result_filename);
@@ -2221,6 +2798,7 @@ public:
 		_store_interval = pt_get(pt, "store_interval", _store_interval);
 		_store_number = pt_get(pt, "store_number", _store_number);
 		_nn_levels = pt_get(pt, "nn_levels", _nn_levels);
+		_nn_update = pt_get(pt, "nn_update", _nn_update);
 		_nn_radius = pt_get(pt, "nn_radius", _nn_radius/unit_length)*unit_length;
 		_nn_radius2 = _nn_radius*_nn_radius;
 		_T0_scale = pt_get(pt, "T0_scale", _T0_scale);
@@ -2248,8 +2826,38 @@ public:
 			BOOST_THROW_EXCEPTION(std::runtime_error((boost::format("Unknown cell type '%s'") % _cell_type).str()));
 		}
 
-
 		_cell->readSettings(cell);
+
+		// read volume fractions
+
+		std::list< boost::shared_ptr<Element<T,DIM> > > element_list;
+		const ptree::ptree& fractions = pt.get_child("fractions", empty_ptree);
+
+		BOOST_FOREACH(const ptree::ptree::value_type &v, fractions)
+		{
+			// skip comments
+			if (v.first == "<xmlcomment>") {
+				continue;
+			}
+
+			const ptree::ptree& attr = v.second.get_child("<xmlattr>", empty_ptree);
+
+			if (v.first == "fraction") {
+				boost::shared_ptr< ElementFraction<T, DIM> > fr;
+				fr.reset(new ElementFraction<T, DIM>());
+
+				std::string element_id = pt_get<std::string>(attr, "element", "");
+				fr->element = _element_db->get(element_id);
+				fr->fraction = pt_get<T>(attr, "value", 0.0);
+
+				if (fr->fraction > 0.0) {
+					_fractions.push_back(fr);
+					element_list.push_back(fr->element);
+
+					LOG_COUT << "fraction " << element_id << " = " << fr->fraction << std::endl;
+				}
+			}
+		}
 
 		// read the potential
 
@@ -2269,32 +2877,12 @@ public:
 
 		_potential->readSettings(potential);
 
-
-		// read volume fractions
-
-		const ptree::ptree& fractions = pt.get_child("fractions", empty_ptree);
-
-		BOOST_FOREACH(const ptree::ptree::value_type &v, fractions)
-		{
-			// skip comments
-			if (v.first == "<xmlcomment>") {
-				continue;
-			}
-
-			const ptree::ptree& attr = v.second.get_child("<xmlattr>", empty_ptree);
-
-			if (v.first == "fraction") {
-				boost::shared_ptr< ElementFraction<T, DIM> > fr;
-				fr.reset(new ElementFraction<T, DIM>());
-
-				std::string element_id = pt_get<std::string>(attr, "element", "");
-				fr->element = _element_db->get(element_id);
-				fr->fraction = pt_get<T>(attr, "value", 0.0);
-				_fractions.push_back(fr);
-
-				LOG_COUT << "fraction " << element_id << " = " << fr->fraction << std::endl;
-			}
+		if (_interpolate_potential) {
+			// TODO: better value for r_min?
+			_potential.reset(new InterpolatedPotential<T, DIM>(_potential, 1.5*unit_length, 1.1*_nn_radius, _interpolate_potential_points, element_list));
+			_potential->readSettings(potential);
 		}
+
 		// read time steps
 
 		const ptree::ptree& steps = pt.get_child("steps", empty_ptree);
@@ -2436,22 +3024,16 @@ public:
 	{
 		Timer __t("run", false);
 
-		LOG_COUT << "verlet" << std::endl;
-		// init verlet map
-		verlet_update();
-
-		LOG_COUT << "forces" << std::endl;
 		// init forces
 		compute_forces();
 
 		// init stats
 		reset_stats();
 
-		LOG_COUT << "run" << std::endl;
-		
 		LOG_COUT << "result file: " << _result_filename << std::endl;
 		std::ofstream f;
 		f.open(_result_filename);
+		//std::ostream& f = std::cout;
 		
 		write_header(f);
 
@@ -2476,6 +3058,7 @@ public:
 		calc_Energy(last_Ekin, last_Epot);
 		_current_Ekin = last_Ekin;
 		_current_Epot = last_Epot;
+		_stats_interval = 0;
 
 		while (it1 != _intervals.end())
 		{
@@ -2497,6 +3080,8 @@ public:
 				mean_Epot = 0;
 				mean_dt = 0;
 			}
+
+			_stats_t = t;
 
 			for(;;)
 			{
@@ -2525,6 +3110,9 @@ public:
 				if (last_timestep) {
 					do_store = true;
 				}
+				if (_stats_dt == 0) {
+					do_store = false;
+				}
 
 				if (do_store) {
 					write_timestep(istep, t, Tp, p, f);
@@ -2539,7 +3127,7 @@ public:
 					perform_timestep(istep, t, dt, Tp, dTdt*dt, p, dpdt*dt);
 					istep++;
 				}
-		
+
 				if (_timestep_callback) {
 					pt::ptime now = pt::microsec_clock::universal_time();
 					bool do_callback = (now - last_callback).total_milliseconds() > (long)_callback_interval;
@@ -2559,6 +3147,7 @@ public:
 				}
 
 				t = (dt < 0) ? std::max(t + dt, t1) : std::min(t + dt, t1);
+				_stats_t = t;
 				p += dpdt*dt;
 				Tp += dTdt*dt;
 				last_Ekin = _current_Ekin;
@@ -2588,13 +3177,14 @@ public:
 
 			++it0;
 			++it1;
+			++_stats_interval;
 		}
 
-		LOG_COUT << std::endl;
+		//LOG_COUT << std::endl;
 		write_tailing(f);
 	}
 
-	void write_header(std::ofstream & f)
+	void write_header(std::ostream & f)
 	{
 		f << "<results>\n";
 		
@@ -2640,17 +3230,34 @@ public:
 		f << "\t<timesteps>\n";
 	}
 
-	void write_tailing(std::ofstream & f)
+	void write_tailing(std::ostream & f)
 	{
 		f << "\t</timesteps>\n";
 
 		f << "</results>\n";
-		f.close();
 	}
 
 	void compute_forces(bool debug = false)
 	{
 		Timer __t("compute_forces", false);
+
+		// decide if nn update is required
+		bool update_nn = true;
+		if (_nn_update == "initial") {
+			if (_molecules.size() > 0 && _molecules[0]->nn_indices.size() > 0) {
+				update_nn = false;
+			}
+		}
+		else if (_nn_update == "first_interval") {
+			if (_stats_interval > 0) {
+				update_nn = false;
+			}
+		}
+
+		if (update_nn) {
+			// only update verlet map, if necessary
+			verlet_update();
+		}
 
 		// clear accelerations and store old accelerations for velocity verlet method
 		auto mi = _molecules.begin();
@@ -2661,7 +3268,6 @@ public:
 			std::fill(molecule->F.begin(), molecule->F.end(), (T)0);
 			++mi;
 		}
-
 
 		std::size_t n = _vdims[0];
 		for (std::size_t i = 1; i < DIM; i++) {
@@ -2684,95 +3290,140 @@ public:
 
 			if (on_boundary) continue;
 
+			std::vector<T> ip_params(_potential->num_interpolation_params());
+
 			// collect all molecule indices
 			boost::shared_ptr<VerletCell<T, DIM> > cell = _vmap->get_cell(cell_index);
 			const std::vector<int>& molecule_indices = cell->indices();
-			std::vector<int>& nmolecule_indices = cell->nindices();
-			std::size_t m = std::pow(3, DIM);
 
-			// iterate over all neighbour cells and cell itself
-			nmolecule_indices.clear();
-			for (std::size_t j = 0; j < m; j++)
+			if (update_nn)
 			{
-				std::size_t k = j;
-				// compute cell index
-				std::array<std::size_t, DIM> ncell_index;
-				for (std::size_t l = 0; l < DIM; l++) {
-					ncell_index[l] = k % 3;
-					k -= ncell_index[l];
-					k /= 3;
-					ncell_index[l] += cell_index[l] - 1;
+				std::vector<int>& nmolecule_indices = cell->nindices();
+				std::size_t m = std::pow(3, DIM);
+
+				// iterate over all neighbour cells and cell itself
+				nmolecule_indices.clear();
+				for (std::size_t j = 0; j < m; j++)
+				{
+					std::size_t k = j;
+					// compute cell index
+					std::array<std::size_t, DIM> ncell_index;
+					for (std::size_t l = 0; l < DIM; l++) {
+						ncell_index[l] = k % 3;
+						k -= ncell_index[l];
+						k /= 3;
+						ncell_index[l] += cell_index[l] - 1;
+					}
+
+					// append molecules
+					boost::shared_ptr<VerletCell<T, DIM> > ncell = _vmap->get_cell(ncell_index);
+					const std::vector<int>& indices = ncell->indices();
+					nmolecule_indices.insert(nmolecule_indices.end(), indices.begin(), indices.end());
 				}
 
-				// append molecules
-				boost::shared_ptr<VerletCell<T, DIM> > ncell = _vmap->get_cell(ncell_index);
-				const std::vector<int>& indices = ncell->indices();
-				nmolecule_indices.insert(nmolecule_indices.end(), indices.begin(), indices.end());
+				// loop over molecules in current cell
+				std::size_t nn_count = nmolecule_indices.size();
+				std::vector< ublas::c_vector<T, DIM> > dir(nn_count);
+				std::vector<T> dist2(nn_count);
+				std::vector<std::size_t> nn_indices;	// indices within _nn_radius
+				nn_indices.reserve(nn_count);
+
+				auto mi = molecule_indices.begin();
+				while (mi != molecule_indices.end())
+				{
+					boost::shared_ptr< Molecule<T, DIM> > molecule = _molecules[*mi];
+
+					nn_indices.clear();
+					molecule->nn_indices.clear();
+
+					// loop over all neighbour molecules
+					for (std::size_t j = 0; j < nn_count; j++)
+					{
+						if (nmolecule_indices[j] < 0) {
+							
+							boost::shared_ptr< GhostMolecule<T, DIM> > nmolecule = _ghost_molecules[(std::size_t)(-1 - nmolecule_indices[j])];
+							dir[j] = _molecules[nmolecule->molecule_index]->x + nmolecule->t - molecule->x;
+						}
+						else {
+							// exclude molecule itself
+							if (nmolecule_indices[j] == *mi) continue;
+
+							boost::shared_ptr< Molecule<T, DIM> > nmolecule = _molecules[nmolecule_indices[j]];
+							dir[j] = nmolecule->x - molecule->x;
+						}
+
+						dist2[j] = ublas::inner_prod(dir[j], dir[j]);
+
+						if (dist2[j] <= _nn_radius2) {
+							nn_indices.push_back(j);
+							molecule->nn_indices.push_back(nmolecule_indices[j]);
+						}
+					}
+
+
+					if (debug)
+					{
+						LOG_COUT << "molecule " << *mi << ":" << std::endl;
+						for (std::size_t i = 0; i < nmolecule_indices.size(); i++) {
+							LOG_COUT << " nm " << i << ": " << nmolecule_indices[i] << std::endl;
+						}
+
+						for (std::size_t i = 0; i < nn_indices.size(); i++) {
+							LOG_COUT << " nn " << i << ": " << nn_indices[i] << " dist2=" << dist2[nn_indices[i]] << " dir=" << dir[nn_indices[i]][0] << std::endl;
+						}
+					}
+					
+					// compute potential energy and gradient for metallic system
+					// Solhjoo_Simchi_Aashuri__Molecular_dynamics_simulation_of_melting,_solidification_and_remelting_process_of_aluminium.pdf
+					// 
+					// 3.2.3. The Ra2i-Tabar and Sutton (RTS) many-body potentials for the metallic FCC random alloys
+
+					// 3.2.1. The Sutton–Chen many-body potentials for the elemental FCC metals
+
+
+					// force (-dU/dx_m)
+
+					_potential->compute(*mi, nn_indices, nmolecule_indices, dist2, dir, _molecules, _ghost_molecules, ip_params);
+
+					++mi;
+				}
 			}
-
-			// loop over molecules in current cell
-			std::size_t nn_count = nmolecule_indices.size();
-			std::vector< ublas::c_vector<T, DIM> > dir(nn_count);
-			std::vector<T> dist2(nn_count);
-			std::vector<std::size_t> nn_indices;	// indices within _nn_radius
-			nn_indices.reserve(nn_count);
-
-			auto mi = molecule_indices.begin();
-			while (mi != molecule_indices.end())
+			else // if !update_nn
 			{
-				boost::shared_ptr< Molecule<T, DIM> > molecule = _molecules[*mi];
+				// use previous calculated nn indices
 
-				nn_indices.clear();
-
-				// loop over all neighbour molecules
-				for (std::size_t j = 0; j < nn_count; j++)
+				auto mi = molecule_indices.begin();
+				while (mi != molecule_indices.end())
 				{
-					if (nmolecule_indices[j] < 0) {
-						
-						boost::shared_ptr< GhostMolecule<T, DIM> > nmolecule = _ghost_molecules[(std::size_t)(-1 - nmolecule_indices[j])];
-						dir[j] = _molecules[nmolecule->molecule_index]->x + nmolecule->t - molecule->x;
-					}
-					else {
-						// exclude molecule itself
-						if (nmolecule_indices[j] == *mi) continue;
+					boost::shared_ptr< Molecule<T, DIM> > molecule = _molecules[*mi];
+					std::vector<int>& nmolecule_indices = molecule->nn_indices;
+					std::size_t nn_count = nmolecule_indices.size();
+					std::vector< ublas::c_vector<T, DIM> > dir(nn_count);
+					std::vector<T> dist2(nn_count);
+					std::vector<std::size_t> nn_indices(nn_count);
 
-						boost::shared_ptr< Molecule<T, DIM> > nmolecule = _molecules[nmolecule_indices[j]];
-						dir[j] = nmolecule->x - molecule->x;
+					// loop over all neighbour molecules
+					for (std::size_t j = 0; j < nn_count; j++)
+					{
+						if (nmolecule_indices[j] < 0) {
+							
+							boost::shared_ptr< GhostMolecule<T, DIM> > nmolecule = _ghost_molecules[(std::size_t)(-1 - nmolecule_indices[j])];
+							dir[j] = _molecules[nmolecule->molecule_index]->x + nmolecule->t - molecule->x;
+						}
+						else {
+							boost::shared_ptr< Molecule<T, DIM> > nmolecule = _molecules[nmolecule_indices[j]];
+							dir[j] = nmolecule->x - molecule->x;
+						}
+
+						dist2[j] = ublas::inner_prod(dir[j], dir[j]);
+						nn_indices[j] = j;
 					}
 
-					dist2[j] = ublas::inner_prod(dir[j], dir[j]);
 
-					if (dist2[j] <= _nn_radius2) {
-						nn_indices.push_back(j);
-					}
+					_potential->compute(*mi, nn_indices, nmolecule_indices, dist2, dir, _molecules, _ghost_molecules, ip_params);
+
+					++mi;
 				}
-
-
-				if (debug)
-				{
-					LOG_COUT << "molecule " << *mi << ":" << std::endl;
-					for (std::size_t i = 0; i < nmolecule_indices.size(); i++) {
-						LOG_COUT << " nm " << i << ": " << nmolecule_indices[i] << std::endl;
-					}
-
-					for (std::size_t i = 0; i < nn_indices.size(); i++) {
-						LOG_COUT << " nn " << i << ": " << nn_indices[i] << " dist2=" << dist2[nn_indices[i]] << " dir=" << dir[nn_indices[i]][0] << std::endl;
-					}
-				}
-				
-				// compute potential energy and gradient for metallic system
-				// Solhjoo_Simchi_Aashuri__Molecular_dynamics_simulation_of_melting,_solidification_and_remelting_process_of_aluminium.pdf
-				// 
-				// 3.2.3. The Ra2i-Tabar and Sutton (RTS) many-body potentials for the metallic FCC random alloys
-
-				// 3.2.1. The Sutton–Chen many-body potentials for the elemental FCC metals
-
-
-				// force (-dU/dx_m)
-
-				_potential->compute(*mi, nn_indices, nmolecule_indices, dist2, dir, _molecules, _ghost_molecules);
-
-				++mi;
 			}
 		}
 	}
@@ -2809,7 +3460,6 @@ public:
 
 		bool debug = false; //(istep >= 3070) && (istep <= 3072);
 
-		verlet_update();
 		compute_forces(debug);
 		
 
@@ -2913,9 +3563,11 @@ public:
 		_stats_Epot = 0;
 		std::fill(_stats_mv.begin(), _stats_mv.end(), (T)0);
 		_stats_dt = 0;
+		_stats_t = 0;
+		_stats_interval = 0;
 	}
 
-	void write_timestep(std::size_t index, T t, T Tp, T p, std::ofstream & f)
+	void write_timestep(std::size_t index, T t, T Tp, T p, std::ostream & f)
 	{
 		Timer __t("write_timestep", false);
 
@@ -3211,6 +3863,7 @@ public:
 		for (std::size_t i = 0; i < _molecules.size(); i++)
 		{
 			verlet_add(i);
+			_molecules[i]->nn_indices.clear();
 		}
 
 		//_vmap->print();
