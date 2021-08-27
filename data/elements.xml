@@ -1,121 +1,121 @@
 <?xml version="1.0" encoding="utf-8"?>
 <elements>
-	<element id="H" Z="1" m="1.008000" a0="470.000000" a1="470.000000" a2="340.000000" cs="Simple Hexagonal" r="0.530000" />
-	<element id="He" Z="2" m="4.002602" a0="424.200000" a1="424.200000" a2="424.200000" cs="Face-centered Cubic" r="0.310000" />
-	<element id="Li" Z="3" m="6.940000" a0="351.000000" a1="351.000000" a2="351.000000" cs="Body-centered Cubic" r="1.670000" />
-	<element id="Be" Z="4" m="9.012183" a0="228.580000" a1="228.580000" a2="358.430000" cs="Simple Hexagonal" r="1.120000" />
-	<element id="B" Z="5" m="10.810000" a0="506.000000" a1="506.000000" a2="506.000000" cs="Simple Trigonal" r="0.870000" />
-	<element id="C" Z="6" m="12.011000" a0="246.400000" a1="246.400000" a2="671.100000" cs="Simple Hexagonal" r="0.670000" />
-	<element id="N" Z="7" m="14.007000" a0="386.100000" a1="386.100000" a2="626.500000" cs="Simple Hexagonal" r="0.560000" />
-	<element id="O" Z="8" m="15.999000" a0="540.300000" a1="342.900000" a2="508.600000" cs="Base-centered Monoclinic" r="0.480000" />
-	<element id="F" Z="9" m="18.998403" a0="550.000000" a1="328.000000" a2="728.000000" cs="Base-centered Monoclinic" r="0.420000" />
-	<element id="Ne" Z="10" m="20.179700" a0="442.900000" a1="442.900000" a2="442.900000" cs="Face-centered Cubic" r="0.380000" />
-	<element id="Na" Z="11" m="22.989769" a0="429.060000" a1="429.060000" a2="429.060000" cs="Body-centered Cubic" r="1.900000" />
-	<element id="Mg" Z="12" m="24.305000" a0="320.940000" a1="320.940000" a2="521.080000" cs="Simple Hexagonal" r="1.450000" />
-	<element id="Al" Z="13" m="26.981538" a0="404.950000" a1="404.950000" a2="404.950000" cs="Face-centered Cubic" r="1.180000" />
-	<element id="Si" Z="14" m="28.085000" a0="543.090000" a1="543.090000" a2="543.090000" cs="Tetrahedral Packing" r="1.110000" />
-	<element id="P" Z="15" m="30.973762" a0="1145.000000" a1="550.300000" a2="1126.100000" cs="Simple Triclinic" r="0.980000" />
-	<element id="S" Z="16" m="32.060000" a0="1043.700000" a1="1284.500000" a2="2436.900000" cs="Face-centered Orthorhombic" r="0.870000" />
-	<element id="Cl" Z="17" m="35.450000" a0="622.350000" a1="445.610000" a2="817.850000" cs="Base Orthorhombic" r="0.790000" />
-	<element id="Ar" Z="18" m="39.948000" a0="525.600000" a1="525.600000" a2="525.600000" cs="Face-centered Cubic" r="0.710000" />
-	<element id="K" Z="19" m="39.098300" a0="532.800000" a1="532.800000" a2="532.800000" cs="Body-centered Cubic" r="2.430000" />
-	<element id="Ca" Z="20" m="40.078000" a0="558.840000" a1="558.840000" a2="558.840000" cs="Face-centered Cubic" r="1.940000" />
-	<element id="Sc" Z="21" m="44.955908" a0="330.900000" a1="330.900000" a2="527.330000" cs="Simple Hexagonal" r="1.840000" />
-	<element id="Ti" Z="22" m="47.867000" a0="295.080000" a1="295.080000" a2="468.550000" cs="Simple Hexagonal" r="1.760000" />
-	<element id="V" Z="23" m="50.941500" a0="303.000000" a1="303.000000" a2="303.000000" cs="Body-centered Cubic" r="1.710000" />
-	<element id="Cr" Z="24" m="51.996100" a0="291.000000" a1="291.000000" a2="291.000000" cs="Body-centered Cubic" r="1.660000" />
-	<element id="Mn" Z="25" m="54.938044" a0="891.250000" a1="891.250000" a2="891.250000" cs="Body-centered Cubic" r="1.610000" />
-	<element id="Fe" Z="26" m="55.845000" a0="286.650000" a1="286.650000" a2="286.650000" cs="Body-centered Cubic" r="1.560000" />
-	<element id="Co" Z="27" m="58.933194" a0="250.710000" a1="250.710000" a2="406.950000" cs="Simple Hexagonal" r="1.520000" />
-	<element id="Ni" Z="28" m="58.693400" a0="352.400000" a1="352.400000" a2="352.400000" cs="Face-centered Cubic" r="1.490000" />
-	<element id="Cu" Z="29" m="63.546000" a0="361.490000" a1="361.490000" a2="361.490000" cs="Face-centered Cubic" r="1.450000" />
-	<element id="Zn" Z="30" m="65.380000" a0="266.490000" a1="266.490000" a2="494.680000" cs="Simple Hexagonal" r="1.420000" />
-	<element id="Ga" Z="31" m="69.723000" a0="451.970000" a1="766.330000" a2="452.600000" cs="Base Orthorhombic" r="1.360000" />
-	<element id="Ge" Z="32" m="72.630000" a0="565.750000" a1="565.750000" a2="565.750000" cs="Face-centered Cubic" r="1.250000" />
-	<element id="As" Z="33" m="74.921595" a0="375.980000" a1="375.980000" a2="1054.750000" cs="Simple Trigonal" r="1.140000" />
-	<element id="Se" Z="34" m="78.971000" a0="905.400000" a1="908.300000" a2="1160.100000" cs="Simple Monoclinic" r="1.030000" />
-	<element id="Br" Z="35" m="79.904000" a0="672.650000" a1="464.510000" a2="870.230000" cs="Base Orthorhombic" r="0.940000" />
-	<element id="Kr" Z="36" m="83.798000" a0="570.600000" a1="570.600000" a2="570.600000" cs="Face-centered Cubic" r="0.870000" />
-	<element id="Rb" Z="37" m="85.467800" a0="558.500000" a1="558.500000" a2="558.500000" cs="Body-centered Cubic" r="2.650000" />
-	<element id="Sr" Z="38" m="87.620000" a0="608.490000" a1="608.490000" a2="608.490000" cs="Face-centered Cubic" r="2.190000" />
-	<element id="Y" Z="39" m="88.905840" a0="364.740000" a1="364.740000" a2="573.060000" cs="Simple Hexagonal" r="2.120000" />
-	<element id="Zr" Z="40" m="91.224000" a0="323.200000" a1="323.200000" a2="514.700000" cs="Simple Hexagonal" r="2.060000" />
-	<element id="Nb" Z="41" m="92.906370" a0="330.040000" a1="330.040000" a2="330.040000" cs="Body-centered Cubic" r="1.980000" />
-	<element id="Mo" Z="42" m="95.950000" a0="314.700000" a1="314.700000" a2="314.700000" cs="Body-centered Cubic" r="1.900000" />
-	<element id="Tc" Z="43" m="97.000000" a0="273.500000" a1="273.500000" a2="438.800000" cs="Simple Hexagonal" r="1.830000" />
-	<element id="Ru" Z="44" m="101.070000" a0="270.590000" a1="270.590000" a2="428.150000" cs="Simple Hexagonal" r="1.780000" />
-	<element id="Rh" Z="45" m="102.905500" a0="380.340000" a1="380.340000" a2="380.340000" cs="Face-centered Cubic" r="1.730000" />
-	<element id="Pd" Z="46" m="106.420000" a0="389.070000" a1="389.070000" a2="389.070000" cs="Face-centered Cubic" r="1.690000" />
-	<element id="Ag" Z="47" m="107.868200" a0="408.530000" a1="408.530000" a2="408.530000" cs="Face-centered Cubic" r="1.650000" />
-	<element id="Cd" Z="48" m="112.414000" a0="297.940000" a1="297.940000" a2="561.860000" cs="Simple Hexagonal" r="1.610000" />
-	<element id="In" Z="49" m="114.818000" a0="325.230000" a1="325.230000" a2="494.610000" cs="Centered Tetragonal" r="1.560000" />
-	<element id="Sn" Z="50" m="118.710000" a0="583.180000" a1="583.180000" a2="318.190000" cs="Centered Tetragonal" r="1.450000" />
-	<element id="Sb" Z="51" m="121.760000" a0="430.700000" a1="430.700000" a2="1127.300000" cs="Simple Trigonal" r="1.330000" />
-	<element id="Te" Z="52" m="127.600000" a0="445.720000" a1="445.720000" a2="592.900000" cs="Simple Trigonal" r="1.230000" />
-	<element id="I" Z="53" m="126.904470" a0="718.020000" a1="471.020000" a2="981.030000" cs="Base Orthorhombic" r="1.150000" />
-	<element id="Xe" Z="54" m="131.293000" a0="620.230000" a1="620.230000" a2="620.230000" cs="Face-centered Cubic" r="1.080000" />
-	<element id="Cs" Z="55" m="132.905452" a0="614.100000" a1="614.100000" a2="614.100000" cs="Body-centered Cubic" r="2.980000" />
-	<element id="Ba" Z="56" m="137.327000" a0="502.800000" a1="502.800000" a2="502.800000" cs="Body-centered Cubic" r="2.530000" />
-	<element id="La" Z="57" m="138.905470" a0="377.200000" a1="377.200000" a2="1214.400000" cs="Simple Hexagonal" />
-	<element id="Ce" Z="58" m="140.116000" a0="362.000000" a1="362.000000" a2="599.000000" cs="Simple Hexagonal" />
-	<element id="Pr" Z="59" m="140.907660" a0="367.250000" a1="367.250000" a2="1183.540000" cs="Simple Hexagonal" r="2.470000" />
-	<element id="Nd" Z="60" m="144.242000" a0="365.800000" a1="365.800000" a2="1179.900000" cs="Simple Hexagonal" r="2.060000" />
-	<element id="Pm" Z="61" m="145.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" r="2.050000" />
-	<element id="Sm" Z="62" m="150.360000" a0="362.100000" a1="362.100000" a2="2625.000000" cs="Simple Trigonal" r="2.380000" />
-	<element id="Eu" Z="63" m="151.964000" a0="458.100000" a1="458.100000" a2="458.100000" cs="Body-centered Cubic" r="2.310000" />
-	<element id="Gd" Z="64" m="157.250000" a0="363.600000" a1="363.600000" a2="578.260000" cs="Simple Hexagonal" r="2.330000" />
-	<element id="Tb" Z="65" m="158.925350" a0="360.100000" a1="360.100000" a2="569.360000" cs="Simple Hexagonal" r="2.250000" />
-	<element id="Dy" Z="66" m="162.500000" a0="359.300000" a1="359.300000" a2="565.370000" cs="Simple Hexagonal" r="2.280000" />
-	<element id="Ho" Z="67" m="164.930330" a0="357.730000" a1="357.730000" a2="561.580000" cs="Simple Hexagonal" r="2.260000" />
-	<element id="Er" Z="68" m="167.259000" a0="355.880000" a1="355.880000" a2="558.740000" cs="Simple Hexagonal" r="2.260000" />
-	<element id="Tm" Z="69" m="168.934220" a0="353.750000" a1="353.750000" a2="555.460000" cs="Simple Hexagonal" r="2.220000" />
-	<element id="Yb" Z="70" m="173.045000" a0="548.470000" a1="548.470000" a2="548.470000" cs="Face-centered Cubic" r="2.220000" />
-	<element id="Lu" Z="71" m="174.966800" a0="350.310000" a1="350.310000" a2="555.090000" cs="Simple Hexagonal" r="2.170000" />
-	<element id="Hf" Z="72" m="178.490000" a0="319.640000" a1="319.640000" a2="505.110000" cs="Simple Hexagonal" r="2.080000" />
-	<element id="Ta" Z="73" m="180.947880" a0="330.130000" a1="330.130000" a2="330.130000" cs="Body-centered Cubic" r="2.000000" />
-	<element id="W" Z="74" m="183.840000" a0="316.520000" a1="316.520000" a2="316.520000" cs="Body-centered Cubic" r="1.930000" />
-	<element id="Re" Z="75" m="186.207000" a0="276.100000" a1="276.100000" a2="445.600000" cs="Simple Hexagonal" r="1.880000" />
-	<element id="Os" Z="76" m="190.230000" a0="273.440000" a1="273.440000" a2="431.730000" cs="Simple Hexagonal" r="1.850000" />
-	<element id="Ir" Z="77" m="192.217000" a0="383.900000" a1="383.900000" a2="383.900000" cs="Face-centered Cubic" r="1.800000" />
-	<element id="Pt" Z="78" m="195.084000" a0="392.420000" a1="392.420000" a2="392.420000" cs="Face-centered Cubic" r="1.770000" />
-	<element id="Au" Z="79" m="196.966569" a0="407.820000" a1="407.820000" a2="407.820000" cs="Face-centered Cubic" r="1.740000" />
-	<element id="Hg" Z="80" m="200.592000" a0="300.500000" a1="300.500000" a2="300.500000" cs="Simple Trigonal" r="1.710000" />
-	<element id="Tl" Z="81" m="204.380000" a0="345.660000" a1="345.660000" a2="552.480000" cs="Simple Hexagonal" r="1.560000" />
-	<element id="Pb" Z="82" m="207.200000" a0="495.080000" a1="495.080000" a2="495.080000" cs="Face-centered Cubic" r="1.540000" />
-	<element id="Bi" Z="83" m="208.980400" a0="667.400000" a1="611.700000" a2="330.400000" cs="Base-centered Monoclinic" r="1.430000" />
-	<element id="Po" Z="84" m="209.000000" a0="335.900000" a1="335.900000" a2="335.900000" cs="Simple Cubic" r="1.350000" />
-	<element id="At" Z="85" m="210.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" r="1.270000" />
-	<element id="Rn" Z="86" m="222.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" r="1.200000" />
-	<element id="Fr" Z="87" m="223.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Ra" Z="88" m="226.000000" a0="514.800000" a1="514.800000" a2="514.800000" cs="Body-centered Cubic" />
-	<element id="Ac" Z="89" m="227.000000" a0="567.000000" a1="567.000000" a2="567.000000" cs="Face-centered Cubic" />
-	<element id="Th" Z="90" m="232.037700" a0="508.420000" a1="508.420000" a2="508.420000" cs="Face-centered Cubic" />
-	<element id="Pa" Z="91" m="231.035880" a0="392.500000" a1="392.500000" a2="323.800000" cs="Centered Tetragonal" />
-	<element id="U" Z="92" m="238.028910" a0="285.370000" a1="586.950000" a2="495.480000" cs="Base Orthorhombic" />
-	<element id="Np" Z="93" m="237.000000" a0="666.300000" a1="472.300000" a2="488.700000" cs="Simple Orthorhombic" />
-	<element id="Pu" Z="94" m="244.000000" a0="618.300000" a1="482.200000" a2="1096.300000" cs="Simple Monoclinic" />
-	<element id="Am" Z="95" m="243.000000" a0="346.810000" a1="346.810000" a2="1124.100000" cs="Simple Hexagonal" />
-	<element id="Cm" Z="96" m="247.000000" a0="349.600000" a1="349.600000" a2="1133.100000" cs="Simple Hexagonal" />
-	<element id="Bk" Z="97" m="247.000000" a0="341.600000" a1="341.600000" a2="1106.900000" cs="Simple Hexagonal" />
-	<element id="Cf" Z="98" m="251.000000" a0="338.000000" a1="338.000000" a2="1102.500000" cs="Simple Hexagonal" />
-	<element id="Es" Z="99" m="252.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Fm" Z="100" m="257.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Md" Z="101" m="258.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="No" Z="102" m="259.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Lr" Z="103" m="262.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Rf" Z="104" m="267.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Db" Z="105" m="270.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Sg" Z="106" m="269.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Bh" Z="107" m="270.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Hs" Z="108" m="270.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Mt" Z="109" m="278.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Ds" Z="110" m="281.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Rg" Z="111" m="281.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Cn" Z="112" m="285.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Nh" Z="113" m="286.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Fl" Z="114" m="289.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Mc" Z="115" m="289.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Lv" Z="116" m="293.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Ts" Z="117" m="293.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
-	<element id="Og" Z="118" m="294.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" />
+	<element id="H" Z="1" m="1.008000" a0="4.700000" a1="4.700000" a2="3.400000" cs="Simple Hexagonal" alpha="0" r="0.530000" />
+	<element id="He" Z="2" m="4.002602" a0="4.242000" a1="4.242000" a2="4.242000" cs="Face-centered Cubic" alpha="0" r="0.310000" />
+	<element id="Li" Z="3" m="6.940000" a0="3.510000" a1="3.510000" a2="3.510000" cs="Body-centered Cubic" alpha="4.6e-05" r="1.670000" />
+	<element id="Be" Z="4" m="9.012183" a0="2.285800" a1="2.285800" a2="3.584300" cs="Simple Hexagonal" alpha="1.13e-05" r="1.120000" />
+	<element id="B" Z="5" m="10.810000" a0="5.060000" a1="5.060000" a2="5.060000" cs="Simple Trigonal" alpha="6e-06" r="0.870000" />
+	<element id="C" Z="6" m="12.011000" a0="2.464000" a1="2.464000" a2="6.711000" cs="Simple Hexagonal" alpha="7.1e-06" r="0.670000" />
+	<element id="N" Z="7" m="14.007000" a0="3.861000" a1="3.861000" a2="6.265000" cs="Simple Hexagonal" alpha="0" r="0.560000" />
+	<element id="O" Z="8" m="15.999000" a0="5.403000" a1="3.429000" a2="5.086000" cs="Base-centered Monoclinic" alpha="0" r="0.480000" />
+	<element id="F" Z="9" m="18.998403" a0="5.500000" a1="3.280000" a2="7.280000" cs="Base-centered Monoclinic" alpha="0" r="0.420000" />
+	<element id="Ne" Z="10" m="20.179700" a0="4.429000" a1="4.429000" a2="4.429000" cs="Face-centered Cubic" alpha="0" r="0.380000" />
+	<element id="Na" Z="11" m="22.989769" a0="4.290600" a1="4.290600" a2="4.290600" cs="Body-centered Cubic" alpha="7e-05" r="1.900000" />
+	<element id="Mg" Z="12" m="24.305000" a0="3.209400" a1="3.209400" a2="5.210800" cs="Simple Hexagonal" alpha="2.48e-05" r="1.450000" />
+	<element id="Al" Z="13" m="26.981538" a0="4.049500" a1="4.049500" a2="4.049500" cs="Face-centered Cubic" alpha="2.31e-05" r="1.180000" />
+	<element id="Si" Z="14" m="28.085000" a0="5.430900" a1="5.430900" a2="5.430900" cs="Tetrahedral Packing" alpha="2.6e-06" r="1.110000" />
+	<element id="P" Z="15" m="30.973762" a0="11.450000" a1="5.503000" a2="11.261000" cs="Simple Triclinic" alpha="0" r="0.980000" />
+	<element id="S" Z="16" m="32.060000" a0="10.437000" a1="12.845000" a2="24.369000" cs="Face-centered Orthorhombic" alpha="0" r="0.870000" />
+	<element id="Cl" Z="17" m="35.450000" a0="6.223500" a1="4.456100" a2="8.178500" cs="Base Orthorhombic" alpha="0" r="0.790000" />
+	<element id="Ar" Z="18" m="39.948000" a0="5.256000" a1="5.256000" a2="5.256000" cs="Face-centered Cubic" alpha="0" r="0.710000" />
+	<element id="K" Z="19" m="39.098300" a0="5.328000" a1="5.328000" a2="5.328000" cs="Body-centered Cubic" alpha="0" r="2.430000" />
+	<element id="Ca" Z="20" m="40.078000" a0="5.588400" a1="5.588400" a2="5.588400" cs="Face-centered Cubic" alpha="2.23e-05" r="1.940000" />
+	<element id="Sc" Z="21" m="44.955908" a0="3.309000" a1="3.309000" a2="5.273300" cs="Simple Hexagonal" alpha="1.02e-05" r="1.840000" />
+	<element id="Ti" Z="22" m="47.867000" a0="2.950800" a1="2.950800" a2="4.685500" cs="Simple Hexagonal" alpha="8.6e-06" r="1.760000" />
+	<element id="V" Z="23" m="50.941500" a0="3.030000" a1="3.030000" a2="3.030000" cs="Body-centered Cubic" alpha="8.4e-06" r="1.710000" />
+	<element id="Cr" Z="24" m="51.996100" a0="2.910000" a1="2.910000" a2="2.910000" cs="Body-centered Cubic" alpha="4.9e-06" r="1.660000" />
+	<element id="Mn" Z="25" m="54.938044" a0="8.912500" a1="8.912500" a2="8.912500" cs="Body-centered Cubic" alpha="2.17e-05" r="1.610000" />
+	<element id="Fe" Z="26" m="55.845000" a0="2.866500" a1="2.866500" a2="2.866500" cs="Body-centered Cubic" alpha="1.18e-05" r="1.560000" />
+	<element id="Co" Z="27" m="58.933194" a0="2.507100" a1="2.507100" a2="4.069500" cs="Simple Hexagonal" alpha="1.3e-05" r="1.520000" />
+	<element id="Ni" Z="28" m="58.693400" a0="3.524000" a1="3.524000" a2="3.524000" cs="Face-centered Cubic" alpha="1.34e-05" r="1.490000" />
+	<element id="Cu" Z="29" m="63.546000" a0="3.614900" a1="3.614900" a2="3.614900" cs="Face-centered Cubic" alpha="1.65e-05" r="1.450000" />
+	<element id="Zn" Z="30" m="65.380000" a0="2.664900" a1="2.664900" a2="4.946800" cs="Simple Hexagonal" alpha="3.02e-05" r="1.420000" />
+	<element id="Ga" Z="31" m="69.723000" a0="4.519700" a1="7.663300" a2="4.526000" cs="Base Orthorhombic" alpha="0.00012" r="1.360000" />
+	<element id="Ge" Z="32" m="72.630000" a0="5.657500" a1="5.657500" a2="5.657500" cs="Face-centered Cubic" alpha="6e-06" r="1.250000" />
+	<element id="As" Z="33" m="74.921595" a0="3.759800" a1="3.759800" a2="10.547500" cs="Simple Trigonal" alpha="0" r="1.140000" />
+	<element id="Se" Z="34" m="78.971000" a0="9.054000" a1="9.083000" a2="11.601000" cs="Simple Monoclinic" alpha="0" r="1.030000" />
+	<element id="Br" Z="35" m="79.904000" a0="6.726500" a1="4.645100" a2="8.702300" cs="Base Orthorhombic" alpha="0" r="0.940000" />
+	<element id="Kr" Z="36" m="83.798000" a0="5.706000" a1="5.706000" a2="5.706000" cs="Face-centered Cubic" alpha="0" r="0.870000" />
+	<element id="Rb" Z="37" m="85.467800" a0="5.585000" a1="5.585000" a2="5.585000" cs="Body-centered Cubic" alpha="0" r="2.650000" />
+	<element id="Sr" Z="38" m="87.620000" a0="6.084900" a1="6.084900" a2="6.084900" cs="Face-centered Cubic" alpha="2.25e-05" r="2.190000" />
+	<element id="Y" Z="39" m="88.905840" a0="3.647400" a1="3.647400" a2="5.730600" cs="Simple Hexagonal" alpha="1.06e-05" r="2.120000" />
+	<element id="Zr" Z="40" m="91.224000" a0="3.232000" a1="3.232000" a2="5.147000" cs="Simple Hexagonal" alpha="5.7e-06" r="2.060000" />
+	<element id="Nb" Z="41" m="92.906370" a0="3.300400" a1="3.300400" a2="3.300400" cs="Body-centered Cubic" alpha="7.3e-06" r="1.980000" />
+	<element id="Mo" Z="42" m="95.950000" a0="3.147000" a1="3.147000" a2="3.147000" cs="Body-centered Cubic" alpha="4.8e-06" r="1.900000" />
+	<element id="Tc" Z="43" m="97.000000" a0="2.735000" a1="2.735000" a2="4.388000" cs="Simple Hexagonal" alpha="0" r="1.830000" />
+	<element id="Ru" Z="44" m="101.070000" a0="2.705900" a1="2.705900" a2="4.281500" cs="Simple Hexagonal" alpha="6.4e-06" r="1.780000" />
+	<element id="Rh" Z="45" m="102.905500" a0="3.803400" a1="3.803400" a2="3.803400" cs="Face-centered Cubic" alpha="8e-06" r="1.730000" />
+	<element id="Pd" Z="46" m="106.420000" a0="3.890700" a1="3.890700" a2="3.890700" cs="Face-centered Cubic" alpha="1.18e-05" r="1.690000" />
+	<element id="Ag" Z="47" m="107.868200" a0="4.085300" a1="4.085300" a2="4.085300" cs="Face-centered Cubic" alpha="1.89e-05" r="1.650000" />
+	<element id="Cd" Z="48" m="112.414000" a0="2.979400" a1="2.979400" a2="5.618600" cs="Simple Hexagonal" alpha="3.08e-05" r="1.610000" />
+	<element id="In" Z="49" m="114.818000" a0="3.252300" a1="3.252300" a2="4.946100" cs="Centered Tetragonal" alpha="3.21e-05" r="1.560000" />
+	<element id="Sn" Z="50" m="118.710000" a0="5.831800" a1="5.831800" a2="3.181900" cs="Centered Tetragonal" alpha="2.2e-05" r="1.450000" />
+	<element id="Sb" Z="51" m="121.760000" a0="4.307000" a1="4.307000" a2="11.273000" cs="Simple Trigonal" alpha="1.1e-05" r="1.330000" />
+	<element id="Te" Z="52" m="127.600000" a0="4.457200" a1="4.457200" a2="5.929000" cs="Simple Trigonal" alpha="0" r="1.230000" />
+	<element id="I" Z="53" m="126.904470" a0="7.180200" a1="4.710200" a2="9.810300" cs="Base Orthorhombic" alpha="0" r="1.150000" />
+	<element id="Xe" Z="54" m="131.293000" a0="6.202300" a1="6.202300" a2="6.202300" cs="Face-centered Cubic" alpha="0" r="1.080000" />
+	<element id="Cs" Z="55" m="132.905452" a0="6.141000" a1="6.141000" a2="6.141000" cs="Body-centered Cubic" alpha="0" r="2.980000" />
+	<element id="Ba" Z="56" m="137.327000" a0="5.028000" a1="5.028000" a2="5.028000" cs="Body-centered Cubic" alpha="2.06e-05" r="2.530000" />
+	<element id="La" Z="57" m="138.905470" a0="3.772000" a1="3.772000" a2="12.144000" cs="Simple Hexagonal" alpha="1.21e-05" />
+	<element id="Ce" Z="58" m="140.116000" a0="3.620000" a1="3.620000" a2="5.990000" cs="Simple Hexagonal" alpha="6.3e-06" />
+	<element id="Pr" Z="59" m="140.907660" a0="3.672500" a1="3.672500" a2="11.835400" cs="Simple Hexagonal" alpha="6.7e-06" r="2.470000" />
+	<element id="Nd" Z="60" m="144.242000" a0="3.658000" a1="3.658000" a2="11.799000" cs="Simple Hexagonal" alpha="9.6e-06" r="2.060000" />
+	<element id="Pm" Z="61" m="145.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="1.1e-05" r="2.050000" />
+	<element id="Sm" Z="62" m="150.360000" a0="3.621000" a1="3.621000" a2="26.250000" cs="Simple Trigonal" alpha="1.27e-05" r="2.380000" />
+	<element id="Eu" Z="63" m="151.964000" a0="4.581000" a1="4.581000" a2="4.581000" cs="Body-centered Cubic" alpha="3.5e-05" r="2.310000" />
+	<element id="Gd" Z="64" m="157.250000" a0="3.636000" a1="3.636000" a2="5.782600" cs="Simple Hexagonal" alpha="9.4e-06" r="2.330000" />
+	<element id="Tb" Z="65" m="158.925350" a0="3.601000" a1="3.601000" a2="5.693600" cs="Simple Hexagonal" alpha="1.03e-05" r="2.250000" />
+	<element id="Dy" Z="66" m="162.500000" a0="3.593000" a1="3.593000" a2="5.653700" cs="Simple Hexagonal" alpha="1e-05" r="2.280000" />
+	<element id="Ho" Z="67" m="164.930330" a0="3.577300" a1="3.577300" a2="5.615800" cs="Simple Hexagonal" alpha="1.12e-05" r="2.260000" />
+	<element id="Er" Z="68" m="167.259000" a0="3.558800" a1="3.558800" a2="5.587400" cs="Simple Hexagonal" alpha="1.22e-05" r="2.260000" />
+	<element id="Tm" Z="69" m="168.934220" a0="3.537500" a1="3.537500" a2="5.554600" cs="Simple Hexagonal" alpha="1.33e-05" r="2.220000" />
+	<element id="Yb" Z="70" m="173.045000" a0="5.484700" a1="5.484700" a2="5.484700" cs="Face-centered Cubic" alpha="2.63e-05" r="2.220000" />
+	<element id="Lu" Z="71" m="174.966800" a0="3.503100" a1="3.503100" a2="5.550900" cs="Simple Hexagonal" alpha="1e-05" r="2.170000" />
+	<element id="Hf" Z="72" m="178.490000" a0="3.196400" a1="3.196400" a2="5.051100" cs="Simple Hexagonal" alpha="5.9e-06" r="2.080000" />
+	<element id="Ta" Z="73" m="180.947880" a0="3.301300" a1="3.301300" a2="3.301300" cs="Body-centered Cubic" alpha="6.3e-06" r="2.000000" />
+	<element id="W" Z="74" m="183.840000" a0="3.165200" a1="3.165200" a2="3.165200" cs="Body-centered Cubic" alpha="4.5e-06" r="1.930000" />
+	<element id="Re" Z="75" m="186.207000" a0="2.761000" a1="2.761000" a2="4.456000" cs="Simple Hexagonal" alpha="6.2e-06" r="1.880000" />
+	<element id="Os" Z="76" m="190.230000" a0="2.734400" a1="2.734400" a2="4.317300" cs="Simple Hexagonal" alpha="5.1e-06" r="1.850000" />
+	<element id="Ir" Z="77" m="192.217000" a0="3.839000" a1="3.839000" a2="3.839000" cs="Face-centered Cubic" alpha="6.4e-06" r="1.800000" />
+	<element id="Pt" Z="78" m="195.084000" a0="3.924200" a1="3.924200" a2="3.924200" cs="Face-centered Cubic" alpha="8.9e-06" r="1.770000" />
+	<element id="Au" Z="79" m="196.966569" a0="4.078200" a1="4.078200" a2="4.078200" cs="Face-centered Cubic" alpha="1.42e-05" r="1.740000" />
+	<element id="Hg" Z="80" m="200.592000" a0="3.005000" a1="3.005000" a2="3.005000" cs="Simple Trigonal" alpha="0.000181" r="1.710000" />
+	<element id="Tl" Z="81" m="204.380000" a0="3.456600" a1="3.456600" a2="5.524800" cs="Simple Hexagonal" alpha="2.99e-05" r="1.560000" />
+	<element id="Pb" Z="82" m="207.200000" a0="4.950800" a1="4.950800" a2="4.950800" cs="Face-centered Cubic" alpha="2.89e-05" r="1.540000" />
+	<element id="Bi" Z="83" m="208.980400" a0="6.674000" a1="6.117000" a2="3.304000" cs="Base-centered Monoclinic" alpha="1.34e-05" r="1.430000" />
+	<element id="Po" Z="84" m="209.000000" a0="3.359000" a1="3.359000" a2="3.359000" cs="Simple Cubic" alpha="0" r="1.350000" />
+	<element id="At" Z="85" m="210.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" r="1.270000" />
+	<element id="Rn" Z="86" m="222.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" r="1.200000" />
+	<element id="Fr" Z="87" m="223.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Ra" Z="88" m="226.000000" a0="5.148000" a1="5.148000" a2="5.148000" cs="Body-centered Cubic" alpha="0" />
+	<element id="Ac" Z="89" m="227.000000" a0="5.670000" a1="5.670000" a2="5.670000" cs="Face-centered Cubic" alpha="0" />
+	<element id="Th" Z="90" m="232.037700" a0="5.084200" a1="5.084200" a2="5.084200" cs="Face-centered Cubic" alpha="1.1e-05" />
+	<element id="Pa" Z="91" m="231.035880" a0="3.925000" a1="3.925000" a2="3.238000" cs="Centered Tetragonal" alpha="0" />
+	<element id="U" Z="92" m="238.028910" a0="2.853700" a1="5.869500" a2="4.954800" cs="Base Orthorhombic" alpha="1.39e-05" />
+	<element id="Np" Z="93" m="237.000000" a0="6.663000" a1="4.723000" a2="4.887000" cs="Simple Orthorhombic" alpha="0" />
+	<element id="Pu" Z="94" m="244.000000" a0="6.183000" a1="4.822000" a2="10.963000" cs="Simple Monoclinic" alpha="0" />
+	<element id="Am" Z="95" m="243.000000" a0="3.468100" a1="3.468100" a2="11.241000" cs="Simple Hexagonal" alpha="0" />
+	<element id="Cm" Z="96" m="247.000000" a0="3.496000" a1="3.496000" a2="11.331000" cs="Simple Hexagonal" alpha="0" />
+	<element id="Bk" Z="97" m="247.000000" a0="3.416000" a1="3.416000" a2="11.069000" cs="Simple Hexagonal" alpha="0" />
+	<element id="Cf" Z="98" m="251.000000" a0="3.380000" a1="3.380000" a2="11.025000" cs="Simple Hexagonal" alpha="0" />
+	<element id="Es" Z="99" m="252.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Fm" Z="100" m="257.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Md" Z="101" m="258.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="No" Z="102" m="259.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Lr" Z="103" m="262.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Rf" Z="104" m="267.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Db" Z="105" m="270.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Sg" Z="106" m="269.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Bh" Z="107" m="270.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Hs" Z="108" m="270.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Mt" Z="109" m="278.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Ds" Z="110" m="281.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Rg" Z="111" m="281.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Cn" Z="112" m="285.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Nh" Z="113" m="286.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Fl" Z="114" m="289.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Mc" Z="115" m="289.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Lv" Z="116" m="293.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Ts" Z="117" m="293.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
+	<element id="Og" Z="118" m="294.000000" a0="0.000000" a1="0.000000" a2="0.000000" cs="N/A" alpha="0" />
 </elements>

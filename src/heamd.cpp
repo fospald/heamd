@@ -1412,13 +1412,13 @@ public:
 				boost::shared_ptr<Element<T,DIM> > element;
 
 				if (_map.count(id) == 0) {
-					LOG_COUT << "new element " << id << std::endl;
+					//LOG_COUT << "new element " << id << std::endl;
 					element.reset(new Element<T,DIM>());
 					element->id = id;
 					_map[id] = element;
 				}
 				else {
-					LOG_COUT << "update element " << id << std::endl;
+					//LOG_COUT << "update element " << id << std::endl;
 					element = _map[id];
 				}
 
@@ -1448,7 +1448,9 @@ class Molecule
 {
 public:
 	ublas::c_vector<T, DIM> x;	// position
-	ublas::c_vector<T, DIM> F;	// force
+	ublas::c_vector<T, DIM> Fn;	// force by normal molecules
+	ublas::c_vector<T, DIM> Fg;	// force by ghost molecules
+	ublas::c_vector<T, DIM> F;	// force (Fn + Fg)
 	ublas::c_vector<T, DIM> F0;	// previous force
 	ublas::c_vector<T, DIM> v;	// velocity
 	T U;				// potential energy
@@ -1563,6 +1565,8 @@ public:
 
 	void scale(T s)
 	{
+		if (s == 1.0) return;
+
 		for (int d = 0; d < DIM; d++) {
 			_a[d] *= s;
 		}
@@ -1674,7 +1678,7 @@ template <typename D, int DIM>
 class SimulationInterval
 {
 public:
-	D t, T, p, dt;
+	D t, T, p, V, dt;
 	bool enforce_T, enforce_mean_T;
 };
 
@@ -1685,6 +1689,7 @@ class ElementFraction
 public:
 	boost::shared_ptr<Element<T,DIM> > element;
 	T fraction;
+	std::size_t n;
 };
 
 
@@ -1790,6 +1795,7 @@ protected:
 		std::size_t np = _potential->num_interpolation_params();
 		std::vector< std::vector<T> > f(np);
 		std::vector<T> ip_params(np);
+		std::vector<T> U;
 		T dr = (_r_max - _r_min) / (_n - 1);
 
 		for (std::size_t i = 0; i < _n; i++)
@@ -1803,6 +1809,10 @@ protected:
 			for (std::size_t k = 0; k < np; k++) {
 				f[k].push_back(ip_params[k]);
 			}
+
+			U.push_back(m2->U);
+
+			//LOG_COUT << "i=" << i << " U=" << (boost::format("%g") % U[i]).str() << std::endl;
 		}
 
 		params->f = f;
@@ -1825,22 +1835,36 @@ protected:
 		for (std::size_t k = 0; k < np; k++) {
 			//LOG_COUT << "id=" << el1->id << " rmin=" << _r_min << " dr=" << dr << " " << f[k][0] << " " << f[k][_n-1] << std::endl;
 			if (params->ip[k]) continue;
-			params->ip[k].reset(new boost::math::cubic_b_spline<T>(f[k].begin(), f[k].end(), _r_min, dr));
+			params->ip[k].reset(new boost::math::cubic_b_spline<T>(
+				f[k].begin(), f[k].end(), _r_min, dr,
+				std::numeric_limits<T>::quiet_NaN(),
+				std::numeric_limits<T>::quiet_NaN())
+			);
 		}
 
-		if (0) {
+		if (1) {
 			std::string filename = "potential_" + el1->id + "_" + el2->id + ".csv";
-			std::ofstream s;
-			s.open(filename);
-			for (std::size_t i = 0; i < _n; i++) {
-				T r = _r_min + dr*i;
-				s << (boost::format("%d\t%g") % i % (r/unit_length)).str();
-				for (std::size_t k = 0; k < np; k++) {
-					s << (boost::format("\t%g\t%g\t%g") % (f[k][i]) % ((*(params->ip[k]))(r)) % ((*(params->ip[k])).prime(r))).str();
+			if (!boost::filesystem::exists(filename)) {
+				std::ofstream s;
+				s.open(filename);
+				for (std::size_t i = 0; i < _n; i++) {
+					T r = _r_min + dr*i;
+					s << (boost::format("%d\t%g\t%g") % i % (r/unit_length) % (U[i]/unit_energy)).str();
+					
+					for (std::size_t k = 0; k < np; k++) {
+						ip_params[k] = ((*(params->ip[k]))(r));
+					}
+					
+					U_from_interpolation_params(*m2, ip_params);
+					s << (boost::format("\t%g") % (m2->U/unit_energy)).str();
+
+					for (std::size_t k = 0; k < np; k++) {
+						s << (boost::format("\t%g\t%g\t%g") % (f[k][i]) % ip_params[k] % ((*(params->ip[k])).prime(r))).str();
+					}
+					s << "\n";
 				}
-				s << "\n";
+				s.close();
 			}
-			s.close();
 		}
 
 
@@ -1877,11 +1901,12 @@ public:
 		std::vector<T>& ip_params)
 	{
 		ublas::c_vector<T, DIM> F;
-		ublas::c_vector<T, DIM> F_sum;
+		ublas::c_vector<T, DIM> Fn_sum, Fg_sum;
 
 		std::size_t np = num_interpolation_params();
 
-		std::fill(F_sum.begin(), F_sum.end(), (T)0);
+		std::fill(Fn_sum.begin(), Fn_sum.end(), (T)0);
+		std::fill(Fg_sum.begin(), Fg_sum.end(), (T)0);
 		std::fill(ip_params.begin(), ip_params.end(), (T)0);
 		std::vector<T> dip_params(np);
 		
@@ -1899,7 +1924,7 @@ public:
 			T r = std::sqrt(dist2[*nn]);
 
 			if (r < _r_min || r > _r_max) {
-				LOG_COUT << "interpolation outside" << r << " " << _r_min << " " << _r_max << std::endl;
+				LOG_COUT << "interpolation outside r=" << r << " rmin=" << _r_min << " rmax=" << _r_max << std::endl;
 			}
 
 			for (std::size_t k = 0; k < np; k++) {
@@ -1915,8 +1940,9 @@ public:
 		while (nn != nn_indices.end())
 		{
 			int mi0 = nmolecule_indices[*nn];
+			bool is_ghost = mi0 < 0;
 
-			if (mi0 < 0) {
+			if (is_ghost) {
 				mi0 = gmolecules[-1 - mi0]->molecule_index;
 			}
 
@@ -1932,16 +1958,29 @@ public:
 
 			F = (-dU/r)*dir[*nn];
 
-			#pragma omp critical
-			molecules[mi0]->F += F;
+			if (is_ghost)
+			{
+				#pragma omp critical
+				molecules[mi0]->Fg += F;
 
-			F_sum += F;
+				Fg_sum += F;
+			}
+			else
+			{
+				#pragma omp critical
+				molecules[mi0]->Fn += F;
+
+				Fn_sum += F;
+			}
 
 			++nn;
 		}
 
 		#pragma omp critical
-		molecules[mi]->F -= F_sum;
+		{
+			molecules[mi]->Fn -= Fn_sum;
+			molecules[mi]->Fg -= Fg_sum;
+		}
 	}
 
 	std::size_t num_interpolation_params() const
@@ -2011,7 +2050,7 @@ protected:
 		params->rhoout = params->rhoh*params->rhoe;
 
 		_param_map.insert(typename ParamMap::value_type(element_name, params));
-		LOG_COUT << "eam " << element_name << std::endl;
+		//LOG_COUT << "eam " << element_name << std::endl;
 
 		if (params->ramda != params->ramda1) {
 			LOG_COUT << "ramda " << element_name << std::endl;
@@ -2150,9 +2189,10 @@ public:
 		// accelerations
 
 		ublas::c_vector<T, DIM> F;
-		ublas::c_vector<T, DIM> F_sum;
+		ublas::c_vector<T, DIM> Fn_sum, Fg_sum;
 
-		std::fill(F_sum.begin(), F_sum.end(), (T)0);
+		std::fill(Fn_sum.begin(), Fn_sum.end(), (T)0);
+		std::fill(Fg_sum.begin(), Fg_sum.end(), (T)0);
 
 		nn = nn_indices.begin();
 		while (nn != nn_indices.end())
@@ -2160,8 +2200,9 @@ public:
 			// compute potential gradient w.r.t. molecules[nn]->x
 
 			int mi0 = nmolecule_indices[*nn];
+			bool is_ghost = mi0 < 0;
 
-			if (mi0 < 0) {
+			if (is_ghost) {
 				mi0 = gmolecules[-1 - mi0]->molecule_index;
 			}
 
@@ -2225,19 +2266,30 @@ public:
 
 			//LOG_COUT << "F: " << F[0] << " " << F[1] << " " << F[2]  << " " << mi0 << std::endl;
 
-			#pragma omp critical
-			molecules[mi0]->F += F;
+			if (is_ghost)
+			{
+				#pragma omp critical
+				molecules[mi0]->Fg += F;
 
-			F_sum += F;
+				Fg_sum += F;
+			}
+			else
+			{
+				#pragma omp critical
+				molecules[mi0]->Fn += F;
+
+				Fn_sum += F;
+			}
 
 			++nn;
 		}
 
 		// accelleration (-1/m*dU/dx_m)
 		#pragma omp critical
-		molecules[mi]->F -= F_sum;
-
-		//LOG_COUT << "." << std::endl;
+		{
+			molecules[mi]->Fn -= Fn_sum;
+			molecules[mi]->Fg -= Fg_sum;
+		}
 
 		//LOG_COUT << "a " << a[0] << " " << a[1] << " " << a[2] << std::endl;
 	}
@@ -2309,10 +2361,11 @@ public:
 		// accelerations
 
 		ublas::c_vector<T, DIM> F;
-		ublas::c_vector<T, DIM> F_sum;
+		ublas::c_vector<T, DIM> Fn_sum, Fg_sum;
 		std::vector<T> dip_params(2);
 
-		std::fill(F_sum.begin(), F_sum.end(), (T)0);
+		std::fill(Fg_sum.begin(), Fg_sum.end(), (T)0);
+		std::fill(Fn_sum.begin(), Fn_sum.end(), (T)0);
 
 		nn = nn_indices.begin();
 		while (nn != nn_indices.end())
@@ -2320,8 +2373,9 @@ public:
 			// compute potential gradient w.r.t. molecules[nn]->x
 
 			int mi0 = nmolecule_indices[*nn];
+			bool is_ghost = mi0 < 0;
 
-			if (mi0 < 0) {
+			if (is_ghost) {
 				mi0 = gmolecules[-1 - mi0]->molecule_index;
 			}
 
@@ -2361,18 +2415,30 @@ public:
 
 			//LOG_COUT << "F: " << F[0] << " " << F[1] << " " << F[2]  << " " << mi0 << std::endl;
 
-			#pragma omp critical
-			molecules[mi0]->F += F;
+			if (is_ghost)
+			{
+				#pragma omp critical
+				molecules[mi0]->Fg += F;
 
-			F_sum += F;
+				Fg_sum += F;
+			}
+			else
+			{
+				#pragma omp critical
+				molecules[mi0]->Fn += F;
+
+				Fn_sum += F;
+			}
 
 			++nn;
 		}
 
+		// accelleration (-1/m*dU/dx_m)
 		#pragma omp critical
-		molecules[mi]->F -= F_sum;
-
-		//LOG_COUT << "a " << a[0] << " " << a[1] << " " << a[2] << std::endl;
+		{
+			molecules[mi]->Fn -= Fn_sum;
+			molecules[mi]->Fg -= Fg_sum;
+		}
 	}
 
 	std::size_t num_interpolation_params() const
@@ -2404,6 +2470,8 @@ public:
 
 		// EAM potential
 		m.U = 0.5*params[1] + FE;
+
+		//LOG_COUT << "rho " << rho << " FE " << FE << (boost::format(" U=%g") % m.U).str()  << std::endl;
 	}
 
 	T dU_from_interpolation_params(Molecule<T, DIM>& m, const std::vector<T>& params, const std::vector<T>& dparams) const
@@ -2548,9 +2616,10 @@ public:
 		// accelerations
 
 		ublas::c_vector<T, DIM> F;
-		ublas::c_vector<T, DIM> F_sum;
+		ublas::c_vector<T, DIM> Fn_sum, Fg_sum;
 
-		std::fill(F_sum.begin(), F_sum.end(), (T)0);
+		std::fill(Fg_sum.begin(), Fg_sum.end(), (T)0);
+		std::fill(Fn_sum.begin(), Fn_sum.end(), (T)0);
 
 		nn = nn_indices.begin();
 		while (nn != nn_indices.end())
@@ -2566,21 +2635,32 @@ public:
 
 			int mi0 = nmolecule_indices[*nn];
 
-			if (mi0 < 0) {
+			if (mi0 < 0)
+			{
 				mi0 = gmolecules[-1 - mi0]->molecule_index;
+				
+				#pragma omp critical
+				molecules[mi0]->Fg += F;
+
+				Fg_sum += F;
 			}
+			else
+			{
+				#pragma omp critical
+				molecules[mi0]->Fn += F;
 
-			#pragma omp critical
-			molecules[mi0]->F += F;
-
-			F_sum += F;
+				Fn_sum += F;
+			}
 
 			++nn;
 		}
 
 		// accelleration (-1/m*dU/dx_m)
 		#pragma omp critical
-		molecules[mi]->F -= F_sum;
+		{
+			molecules[mi]->Fn -= Fn_sum;
+			molecules[mi]->Fg -= Fg_sum;
+		}
 
 		//LOG_COUT << "." << std::endl;
 
@@ -2623,20 +2703,15 @@ public:
 		// accelerations
 
 		ublas::c_vector<T, DIM> F;
-		ublas::c_vector<T, DIM> F_sum;
+		ublas::c_vector<T, DIM> Fn_sum, Fg_sum;
 		std::vector<T> dip_params(2);
 
-		std::fill(F_sum.begin(), F_sum.end(), (T)0);
+		std::fill(Fn_sum.begin(), Fn_sum.end(), (T)0);
+		std::fill(Fg_sum.begin(), Fg_sum.end(), (T)0);
 
 		nn = nn_indices.begin();
 		while (nn != nn_indices.end())
 		{
-			int mi0 = nmolecule_indices[*nn];
-
-			if (mi0 < 0) {
-				mi0 = gmolecules[-1 - mi0]->molecule_index;
-			}
-
 			// compute potential gradient w.r.t. molecules[nn]->x
 
 			T r = std::sqrt(dist2[*nn]);
@@ -2650,16 +2725,33 @@ public:
 
 			F = (-(dU)/r)*dir[*nn];
 
-			#pragma omp critical
-			molecules[mi0]->F += F;
+			int mi0 = nmolecule_indices[*nn];
 
-			F_sum += F;
+			if (mi0 < 0)
+			{
+				mi0 = gmolecules[-1 - mi0]->molecule_index;
+				
+				#pragma omp critical
+				molecules[mi0]->Fg += F;
+
+				Fg_sum += F;
+			}
+			else
+			{
+				#pragma omp critical
+				molecules[mi0]->Fn += F;
+
+				Fn_sum += F;
+			}
 
 			++nn;
 		}
 
 		#pragma omp critical
-		molecules[mi]->F -= F_sum;
+		{
+			molecules[mi]->Fn -= Fn_sum;
+			molecules[mi]->Fg -= Fg_sum;
+		}
 	}
 
 	std::size_t num_interpolation_params() const
@@ -2695,6 +2787,7 @@ protected:
 	bool _zero_mean;
 	bool _shuffle_elements;
 	bool _periodic_bc;
+	bool _periodic_wrap;
 	bool _write_ghosts;
 	bool _interpolate_potential;
 	std::size_t _interpolate_potential_points;
@@ -2706,6 +2799,8 @@ protected:
 	std::string _initial_velocity;	// boltzmann, uniform, zero
 	std::string _time_step_mode;
 	std::string _xml_project_str;
+	std::string _thermostat;
+	std::string _barostat;
 	std::size_t _lattice_multiplier;
 	std::size_t _N;
 	int _seed;
@@ -2723,6 +2818,7 @@ protected:
 
 	T _ds_max;
 	T _tau_T;
+	T _tau_p;
 	T _T0_scale;
 
 	std::vector< boost::shared_ptr< Molecule<T, DIM> > > _molecules;
@@ -2734,10 +2830,14 @@ protected:
 	T _current_Epot;
 	T _stats_Ekin;
 	T _stats_Epot;
+	T _stats_p;
+	T _stats_V;
 	ublas::c_vector<T, DIM> _stats_mv;
 	T _stats_dt;
 	T _stats_t;
 	std::size_t _stats_interval;
+	std::size_t _stats_steps;
+	T _unit_V;
 
 	// callbacks
 	TimestepCallback _timestep_callback;
@@ -2745,6 +2845,8 @@ protected:
 public:
 	MDSolver()
 	{
+		_unit_V = std::pow(unit_length, DIM);
+
 		_cell_type = "cubic";
 		_potential_type = "embedded-atom";
 		_nn_radius = -1.0;
@@ -2757,8 +2859,9 @@ public:
 		_store_interval = 0;
 		_store_number = 500;
 		_periodic_bc = true;
+		_periodic_wrap = true;
 		_interpolate_potential = false;
-		_interpolate_potential_points = 200;
+		_interpolate_potential_points = 400;
 		_write_ghosts = false;
 		_zero_mean = true;
 		_initial_position = "fcc";
@@ -2766,10 +2869,13 @@ public:
 		_initial_velocity = "boltzmann";
 		_ds_max = 0.01;
 		_tau_T = 1.0*unit_time;
+		_tau_p = 1.0*unit_time*unit_p;
 		_time_step_mode = "fixed";
-		_T0_scale = 2.0;
+		_T0_scale = 1.0;
 		_xml_project_str = "";
 		_shuffle_elements = true;
+		_thermostat = "berendsen";
+		_barostat = "none";
 	}
 
 	inline void setTimestepCallback(TimestepCallback cb)
@@ -2784,11 +2890,15 @@ public:
 		_seed = pt_get(pt, "seed", _seed);
 
 		_tau_T = pt_get(pt, "tau_T", _tau_T/unit_time)*unit_time;
+		_tau_p = pt_get(pt, "tau_p", _tau_p/(unit_time*unit_p))*unit_time*unit_p;
 		_ds_max = pt_get(pt, "ds_max", _ds_max/unit_length)*unit_length;
 		_initial_position = pt_get(pt, "initial_position", _initial_position);
 		_initial_velocity = pt_get(pt, "initial_velocity", _initial_velocity);
+		_thermostat = pt_get(pt, "thermostat", _thermostat);
+		_barostat = pt_get(pt, "barostat", _barostat);
 		_lattice_multiplier = pt_get(pt, "lattice_multiplier", _lattice_multiplier);
 		_periodic_bc = pt_get(pt, "periodic_bc", _periodic_bc);
+		_periodic_wrap = pt_get(pt, "periodic_wrap", _periodic_wrap);
 		_interpolate_potential = pt_get(pt, "interpolate_potential", _interpolate_potential);
 		_interpolate_potential_points = pt_get(pt, "interpolate_potential_points", _interpolate_potential_points);
 		_write_ghosts = pt_get(pt, "write_ghosts", _write_ghosts);
@@ -2853,8 +2963,6 @@ public:
 				if (fr->fraction > 0.0) {
 					_fractions.push_back(fr);
 					element_list.push_back(fr->element);
-
-					LOG_COUT << "fraction " << element_id << " = " << fr->fraction << std::endl;
 				}
 			}
 		}
@@ -2879,7 +2987,7 @@ public:
 
 		if (_interpolate_potential) {
 			// TODO: better value for r_min?
-			_potential.reset(new InterpolatedPotential<T, DIM>(_potential, 1.5*unit_length, 1.1*_nn_radius, _interpolate_potential_points, element_list));
+			_potential.reset(new InterpolatedPotential<T, DIM>(_potential, 0.8*unit_length, 1.3*_nn_radius, _interpolate_potential_points, element_list));
 			_potential->readSettings(potential);
 		}
 
@@ -2890,6 +2998,7 @@ public:
 		T last_t = 0 * unit_time;
 		T last_T = 300 * unit_T;
 		T last_p = 1 * unit_p;
+		T last_V = _cell->volume();
 		T last_dt = pt_get<T>(pt, "dt", 1.0) * unit_time;
 
 		BOOST_FOREACH(const ptree::ptree::value_type &v, steps)
@@ -2909,10 +3018,12 @@ public:
 				iv->enforce_T = pt_get<bool>(attr, "enforce_T", false);
 				iv->enforce_mean_T = pt_get<bool>(attr, "enforce_mean_T", false);
 				iv->p = pt_get<T>(attr, "p", last_p/unit_p) * unit_p;
+				iv->V = pt_get<T>(attr, "V", last_V/_unit_V) * _unit_V;
 				iv->dt = pt_get<T>(attr, "dt", last_dt/unit_time) * unit_time;
 				last_t = iv->t;
 				last_T = iv->T;
 				last_p = iv->p;
+				last_V = iv->V;
 				last_dt = iv->dt;
 				_intervals.push_back(iv);
 			}
@@ -2964,6 +3075,39 @@ public:
 
 		_cell->scale(_lattice_multiplier);
 
+		// sort element fractions
+		
+		struct fr_greater
+		{
+		    inline bool operator() (const boost::shared_ptr< ElementFraction<T, DIM> >& a, const boost::shared_ptr< ElementFraction<T, DIM> >& b)
+		    {
+			return (a->fraction > b->fraction);
+		    }
+		};
+
+		std::sort(_fractions.begin(), _fractions.end(), fr_greater());
+
+		auto fr = _fractions.begin();
+		std::size_t N = 0;
+		while (fr != _fractions.end())
+		{
+			std::size_t n = (std::size_t) std::round((*fr)->fraction * _N);
+			n = std::min(n, _N - N);
+			(*fr)->n = n;
+			N += n;
+			++fr;
+		}
+
+		if (N < _N) {
+			_fractions[0]->n += _N - N;
+		}
+
+		fr = _fractions.begin();
+		while (fr != _fractions.end()) {
+			LOG_COUT << "fraction " << (*fr)->element->id << " = "
+				<< (*fr)->fraction << " (n=" << (*fr)->n << ")" << std::endl;
+			++fr;
+		}
 
 		// compute number of Verlet divisions for each dimension
 		const ublas::c_vector<T, DIM>& bb_size = _cell->bb_size();
@@ -3064,11 +3208,13 @@ public:
 		{
 			T t = (*it0)->t;
 			T p = (*it0)->p;
+			T V = (*it0)->V;
 			T Tp = (*it0)->T;
 			T t1 = (*it1)->t;
 			T dt = ((*it1)->t - (*it0)->t);
 			T dTdt = ((*it1)->T - (*it0)->T) / dt;
 			T dpdt = ((*it1)->p - (*it0)->p) / dt;
+			T dVdt = ((*it1)->V - (*it0)->V) / dt;
 			bool last_interval = false;
 
 			if (std::next(it1) == _intervals.end()) {
@@ -3089,7 +3235,7 @@ public:
 				dt = calc_timestep((*it0)->dt);
 				dt = std::min(dt, t1 - t);
 
-				if ((*it0)->enforce_T || (*it0)->enforce_mean_T) {
+				if ((*it0)->enforce_T) {
 					set_temperature(Tp, _current_Ekin);
 				}
 
@@ -3108,14 +3254,15 @@ public:
 					do_store = true;
 				}
 				if (last_timestep) {
-					do_store = true;
+					// this causes artefacts in the visualization (i.e. if the average values include only a few steps)
+					//do_store = true;
 				}
 				if (_stats_dt == 0) {
 					do_store = false;
 				}
 
 				if (do_store) {
-					write_timestep(istep, t, Tp, p, f);
+					write_timestep(istep, t, Tp, p, V, f);
 					last_store = t;
 					if (pb.update(t - tB)) {
 						T est = 0.5 + __t.seconds()*(100 - pb.progress())/(std::max((T)1, pb.progress()));
@@ -3124,7 +3271,7 @@ public:
 				}
 				
 				if (!last_step) {
-					perform_timestep(istep, t, dt, Tp, dTdt*dt, p, dpdt*dt);
+					perform_timestep(istep, t, dt, Tp, dTdt*dt, p, dpdt*dt, V, dVdt*dt);
 					istep++;
 				}
 
@@ -3150,16 +3297,25 @@ public:
 				_stats_t = t;
 				p += dpdt*dt;
 				Tp += dTdt*dt;
+				V += dVdt*dt;
 				last_Ekin = _current_Ekin;
 				last_Epot = _current_Epot;
 			}
 
-			if ((*it0)->enforce_mean_T) {
+			if ((*it0)->enforce_mean_T)
+			{
 				T Ekin_mean = mean_Ekin/mean_dt;
 				T Epot_mean = mean_Epot/mean_dt;
 				
+				T Tmean = Ekin_mean/(DIM/2.0*_molecules.size()*const_kB);
+				LOG_COUT << "Tmean = " << (Tmean) << std::endl;
+				set_temperature(std::max((T)0, 2*(*it0)->T - Tmean), Ekin_mean);
+
+				/*
+				Ekin + Epot = C
+				
 				T Ekin_set = Ekin_mean + Epot_mean - _current_Epot;
-				T T_set = Ekin_set*2.0/(3.0*_molecules.size()*const_kB);
+				T T_set = Ekin_set*2.0/(DIM*_molecules.size()*const_kB);
 
 				LOG_COUT << "t = " << (t) << std::endl;
 				LOG_COUT << "Ekin_set = " << (Ekin_set/unit_energy) << std::endl;
@@ -3173,6 +3329,7 @@ public:
 				calc_Energy(x, y);
 				LOG_COUT << "Get Ekin = " << x << std::endl;
 				LOG_COUT << "Get Epot = " << y << std::endl;
+				*/
 			}
 
 			++it0;
@@ -3216,7 +3373,7 @@ public:
 			auto fr = _fractions.begin();
 			while (fr != _fractions.end())
 			{
-				f << (boost::format("\t\t<element id='%s' r='%g' fraction='%g' color='%s' />\n") % (*fr)->element->id % ((*fr)->element->r/unit_length) % (*fr)->fraction % (*fr)->element->color).str();
+				f << (boost::format("\t\t<element id='%s' r='%g' fraction='%g' n='%d' color='%s' />\n") % (*fr)->element->id % ((*fr)->element->r/unit_length) % (*fr)->fraction % (*fr)->n % (*fr)->element->color).str();
 				++fr;
 			}
 		f << "\t</elements>\n";
@@ -3265,7 +3422,8 @@ public:
 		{
 			boost::shared_ptr< Molecule<T, DIM> > molecule = *mi;
 			molecule->F0 = molecule->F;
-			std::fill(molecule->F.begin(), molecule->F.end(), (T)0);
+			std::fill(molecule->Fn.begin(), molecule->Fn.end(), (T)0);
+			std::fill(molecule->Fg.begin(), molecule->Fg.end(), (T)0);
 			++mi;
 		}
 
@@ -3419,16 +3577,24 @@ public:
 						nn_indices[j] = j;
 					}
 
-
 					_potential->compute(*mi, nn_indices, nmolecule_indices, dist2, dir, _molecules, _ghost_molecules, ip_params);
 
 					++mi;
 				}
-			}
+			} // update_nn
+		}
+
+		// compute total force
+		mi = _molecules.begin();
+		while (mi != _molecules.end())
+		{
+			boost::shared_ptr< Molecule<T, DIM> > molecule = *mi;
+			molecule->F = molecule->Fn + molecule->Fg;
+			++mi;
 		}
 	}
 
-	void perform_timestep(std::size_t istep, T t, T dt, T Tp, T dT, T p, T dp)
+	void perform_timestep(std::size_t istep, T t, T dt, T Tp, T dT, T p, T dp, T _V, T _dV)
 	{
 		Timer __t("perform_timestep", false);
 
@@ -3449,7 +3615,8 @@ public:
 				molecule->x += dt*molecule->v + (0.5*dt*dt/molecule->element->m)*molecule->F;
 
 				//LOG_COUT << "x=" << molecule->x[0] << " x=" << molecule->x[1] << " x=" << molecule->x[2]  << std::endl;
-				if (_periodic_bc) {
+				if (_periodic_bc && _periodic_wrap) {
+					// TODO: when nn_update = "never" wraping a vector causes issues
 					_cell->wrap_vector(molecule->x);
 				}
 
@@ -3466,6 +3633,9 @@ public:
 		ublas::c_vector<T, DIM> p_mean;
 		std::fill(p_mean.begin(), p_mean.end(), (T)0);
 
+		T virial = 0;
+		T Ekin = _current_Ekin;
+
 		// update velocities
 		{
 			auto mi = _molecules.begin();
@@ -3478,14 +3648,31 @@ public:
 				m->v += (0.5*dt/m->element->m)*(m->F + m->F0);
 				p_mean += m->element->m*m->v;
 
+				virial += ublas::inner_prod(m->Fn, m->x);
+
 				++mi;
 			}
 			
 			p_mean /= (T) _molecules.size();
 		}
 
+		T Temp = Ekin/(0.5*const_kB*DIM*_molecules.size());
+		T press = (2*Ekin + virial)/(DIM*_cell->volume());
+		T v_scale = 1.0;
+		T L_scale = 1.0;
 
-		T v_scale = std::exp(dT/Tp);
+		if (_thermostat == "berendsen")
+		{
+			v_scale = std::sqrt(1 + dt/_tau_T*(Tp/Temp - 1.0)); // lambda
+		}
+
+		if (_barostat == "berendsen")
+		{
+			// LAMMPS source: https://github.com/lammps/lammps/blob/master/src/fix_press_berendsen.cpp
+			L_scale = std::pow(1 + dt/_tau_p*(p - press), (T)1.0/DIM); // mu
+		}
+
+		//T v_scale = std::exp(dT/Tp);
 		//T v_scale = std::sqrt(1 + dT/Tp);
 
 		_current_Ekin = 0;
@@ -3504,12 +3691,18 @@ public:
 			// scale velocities to adjust temperature
 			m->v *= v_scale;
 	
+			// scale positions
+			m->x *= L_scale;
+
 			// update Ekin and Epot	
 			_current_Ekin += 0.5*(*mi)->element->m*ublas::inner_prod((*mi)->v, (*mi)->v);
 			_current_Epot +=(*mi)->U;
 
 			++mi;
 		}
+
+		// scale cell
+		_cell->scale(L_scale);
 	}
 
 	T calc_Energy(T& Ekin, T& Epot)
@@ -3531,7 +3724,7 @@ public:
 
 	void acc_stats(T dt)
 	{
-		T Ekin = 0, Epot = 0;
+		T Ekin = 0, Epot = 0, p = 0;
 		ublas::c_vector<T, DIM> mv;
 		std::fill(mv.begin(), mv.end(), (T)0);
 
@@ -3539,12 +3732,21 @@ public:
 			Ekin += 0.5*_molecules[i]->element->m*ublas::inner_prod(_molecules[i]->v, _molecules[i]->v);
 			Epot += _molecules[i]->U;
 			mv += _molecules[i]->element->m*_molecules[i]->v;
+			p += ublas::inner_prod(_molecules[i]->Fn, _molecules[i]->x);
 		}
+
+		T V = _cell->volume();
+
+		p /= -V*DIM;
+		p += Ekin/(DIM/2.0*V);
 
 		_stats_Ekin += Ekin*dt;
 		_stats_Epot += Epot*dt;
+		_stats_p += p*dt;
+		_stats_V += V*dt;
 		_stats_mv += mv*dt;
 		_stats_dt += dt;
+		_stats_steps += 1;
 	}
 
 	void norm_stats()
@@ -3552,6 +3754,8 @@ public:
 		if (_stats_dt != 0) {
 			_stats_Ekin /= _stats_dt;
 			_stats_Epot /= _stats_dt;
+			_stats_p /= _stats_dt;
+			_stats_V /= _stats_dt;
 			_stats_mv /= _stats_dt;
 		}
 		_stats_dt = 1;
@@ -3561,17 +3765,20 @@ public:
 	{
 		_stats_Ekin = 0;
 		_stats_Epot = 0;
+		_stats_p = 0;
+		_stats_V = 0;
 		std::fill(_stats_mv.begin(), _stats_mv.end(), (T)0);
 		_stats_dt = 0;
 		_stats_t = 0;
+		_stats_steps = 0;
 		_stats_interval = 0;
 	}
 
-	void write_timestep(std::size_t index, T t, T Tp, T p, std::ostream & f)
+	void write_timestep(std::size_t index, T t, T Tp, T p, T V, std::ostream & f)
 	{
 		Timer __t("write_timestep", false);
 
-		f << (boost::format("\t\t<timestep id='%d' t='%g' T='%g' p='%g'>\n") % index % (t/unit_time) % (Tp/unit_T) % (p/unit_p)).str();
+		f << (boost::format("\t\t<timestep id='%d' t='%g' T='%g' p='%g' V='%g'>\n") % index % (t/unit_time) % (Tp/unit_T) % (p/unit_p) % (V/_unit_V)).str();
 
 		f << "\t\t\t<stats>\n";
 
@@ -3584,17 +3791,18 @@ public:
 			}
 
 			T Etot = _stats_Ekin + _stats_Epot;
-			T Temp = 2.0*_stats_Ekin/(3.0*const_kB*_molecules.size());
-			T P = 2.0*_stats_Ekin/(3.0*_cell->volume());	// Pa
+			T Temp = 2.0*_stats_Ekin/(DIM*const_kB*_molecules.size());
 			T mv = std::sqrt(ublas::inner_prod(_stats_mv, _stats_mv));
 
-			f << (boost::format("<dt>%g</dt>") % (dt/unit_time)).str();
-			f << (boost::format("<Ekin>%g</Ekin>") % (_stats_Ekin/unit_energy)).str();
-			f << (boost::format("<Epot>%g</Epot>") % (_stats_Epot/unit_energy)).str();
-			f << (boost::format("<Etot>%g</Etot>") % (Etot/unit_energy)).str();
-			f << (boost::format("<T>%g</T>") % (Temp/unit_T)).str();
-			f << (boost::format("<P>%g</P>") % (P/unit_p)).str();
-			f << (boost::format("<MV>%g</MV>") % (mv*mv/(2*M)/(unit_energy))).str();
+			f << (boost::format("<dt>%.8g</dt>") % (dt/unit_time)).str();
+			f << (boost::format("<steps>%.8g</steps>") % (_stats_steps)).str();
+			f << (boost::format("<Ekin>%.8g</Ekin>") % (_stats_Ekin/unit_energy)).str();
+			f << (boost::format("<Epot>%.8g</Epot>") % (_stats_Epot/unit_energy)).str();
+			f << (boost::format("<Etot>%.8g</Etot>") % (Etot/unit_energy)).str();
+			f << (boost::format("<T>%.8g</T>") % (Temp/unit_T)).str();
+			f << (boost::format("<P>%.8g</P>") % (_stats_p/unit_p)).str();
+			f << (boost::format("<V>%.8g</V>") % (_stats_V/_unit_V)).str();
+			f << (boost::format("<MV>%.8g</MV>") % (mv*mv/(2*M)/(unit_energy))).str();
 
 			reset_stats();
 
@@ -3656,7 +3864,7 @@ public:
 
 		while (fr != _fractions.end())
 		{
-			std::size_t n = (std::size_t) std::round((*fr)->fraction * _N);
+			std::size_t n = (*fr)->n;
 
 			for (std::size_t i = 0; i < n; i++)
 			{
@@ -3732,7 +3940,7 @@ public:
 				}
 
 
-				LOG_COUT << "new molecule x=" << m->x[0] << " y=" << m->x[1] << " z=" << m->x[2] << std::endl;
+				//LOG_COUT << "new molecule x=" << m->x[0] << " y=" << m->x[1] << " z=" << m->x[2] << std::endl;
 
 				if (_initial_velocity == "boltzmann")
 				{
@@ -3824,7 +4032,7 @@ public:
 				++mi;
 			}
 
-			T Temp = 2.0*Ekin/(3.0*const_kB*_molecules.size());
+			T Temp = 2.0*Ekin/(DIM*const_kB*_molecules.size());
 			LOG_COUT << "Ekin=" << Ekin << "Temp=" << Temp << std::endl;
 		}
 		*/
@@ -3835,7 +4043,7 @@ public:
 	{
 		if (Ekin > 0)
 		{
-			T Ekin0 = 3.0/2.0*_molecules.size()*const_kB*T0;
+			T Ekin0 = DIM/2.0*_molecules.size()*const_kB*T0;
 			T v_scale = std::sqrt(Ekin0/Ekin);
 
 			//LOG_COUT << "Ekin0=" << Ekin0 << " Ekin=" << Ekin << " T0=" << T0 << std::endl;

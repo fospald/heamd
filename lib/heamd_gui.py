@@ -1161,6 +1161,7 @@ class ResultWidget(QtWidgets.QWidget):
 
 
 		time = []
+		dt = []
 		Ekin = []
 		Epot = []
 		Etot = []
@@ -1168,7 +1169,9 @@ class ResultWidget(QtWidgets.QWidget):
 		T = []
 		T_control = []
 		P = []
-		dt = []
+		P_control = []
+		V = []
+		V_control = []
 		for ts in self.timesteps:
 			stats = ts.find("stats")
 
@@ -1179,14 +1182,19 @@ class ResultWidget(QtWidgets.QWidget):
 			dt.append(1e-12*_dt);
 			"""
 			
-			time.append(1e-12*float(ts.attrib['t']));
-			T_control.append(float(ts.attrib['T']));
-			Ekin.append(float(stats.find("Ekin").text));
-			Epot.append(float(stats.find("Epot").text));
-			Etot.append(float(stats.find("Etot").text));
-			T.append(float(stats.find("T").text));
-			P.append(float(stats.find("P").text));
-			MV.append(float(stats.find("MV").text));
+			steps = int(stats.find("steps").text)
+			time.append(1e-12*float(ts.attrib['t']))
+			dt.append(1e-12*float(stats.find("dt").text)/steps)
+			T_control.append(float(ts.attrib['T']))
+			P_control.append(float(ts.attrib['p']))
+			V_control.append(float(ts.attrib['V']))
+			Ekin.append(float(stats.find("Ekin").text))
+			Epot.append(float(stats.find("Epot").text))
+			Etot.append(float(stats.find("Etot").text))
+			T.append(float(stats.find("T").text))
+			P.append(float(stats.find("P").text))
+			V.append(float(stats.find("V").text))
+			MV.append(float(stats.find("MV").text))
 
 
 		pg.setConfigOptions(antialias=True)
@@ -1228,6 +1236,38 @@ class ResultWidget(QtWidgets.QWidget):
 		win.addCursors(plot)
 
 		tab.addTab(win, "Temperature")
+
+
+		win = PlotWidget(result_xml_root, None)
+
+		plot = win.addPlot(xtitle="Pressure")
+		plot.setLabel('left', 'Pressure', units='bar')
+		plot.setLabel('bottom', 'Time', units='s')
+		#plot.addLegend()
+		plot.showGrid(x=True, y=True)
+		plot.plot(time, np.array(P), pen=(0,0,255), name="p")
+		win.addSmoothControls(plot)
+		#plot.plot(time, np.array(P_control), pen=(0,255,0), name="p control")
+
+		win.addCursors(plot)
+
+		tab.addTab(win, "Pressure")
+
+
+		plot = win.addPlot(xtitle="Volume")
+		plot.setLabel('left', 'Volume', units='Å³')
+		plot.setLabel('bottom', 'Time', units='s')
+		#plot.addLegend()
+		plot.showGrid(x=True, y=True)
+		plot.plot(time, np.array(V), pen=(0,0,255), name="p")
+		win.addSmoothControls(plot)
+		#plot.plot(time, np.array(V_control), pen=(0,255,0), name="p control")
+
+		win.addCursors(plot)
+
+		tab.addTab(win, "Volume")
+
+
 
 
 		win = PlotWidget(result_xml_root, None)
@@ -3001,8 +3041,14 @@ class MainWindow(QtWidgets.QMainWindow):
 			os.chdir(filedir)
 			with open(filename, "rt") as f:
 				txt = f.read()
-			if txt.startswith("<results>"):
-				return self.loadResults(txt)
+			xml = ET.fromstring(txt)
+			if xml.tag == "results":
+				self.loadResults(xml, txt)
+				proj = xml.find("project")
+				if proj is None:
+					return True
+				proj.tag = "settings"
+				txt = ET.tostring(proj, encoding='unicode')
 			self.textEdit.setPlainText(txt)
 			self.filename = filename
 			self.filetype = os.path.splitext(filename)[1]
@@ -3016,8 +3062,7 @@ class MainWindow(QtWidgets.QMainWindow):
 			return False
 		return True
 
-	def loadResults(self, resultText):
-		result_xml = ET.fromstring(resultText)
+	def loadResults(self, result_xml, resultText):
 
 		tab = ResultWidget("", None, resultText, result_xml, None)
 		tab.file_id = self.file_id
